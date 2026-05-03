@@ -12,26 +12,38 @@ liberally — every Swift command has a Go counterpart under
 ## Status
 
 **Read commands shipped:**
-`gh version`, `gh api`, `gh repo view`, `gh repo list`,
-`gh release list/view/download`, `gh issue list/view`, `gh pr list/view`,
+`gh version`, `gh api`, `gh repo view/list`,
+`gh release list/view/download`, `gh issue list/view`, `gh pr list/view/diff/checks`,
 `gh search repos/code/commits/issues/prs`, `gh gist view/list`,
 `gh workflow list/view`, `gh run list/view`, `gh label list`,
-`gh project list/view/item-list`.
+`gh project list/view/item-list`,
+`gh ssh-key list`, `gh gpg-key list`, `gh org list`,
+`gh secret list`, `gh variable list/get`, `gh cache list`,
+`gh browse`.
 
 **Write commands shipped:**
-- API-only: `gh issue create/comment/close/reopen`,
-  `gh pr merge/close/reopen/comment`,
-  `gh release create/delete`,
-  `gh gist create/delete`,
-  `gh repo create`.
+- API-only:
+  - issues: `create / edit / comment / close / reopen / lock / unlock / pin / unpin`
+  - PRs: `edit / comment / merge / close / reopen / ready [--undo] / lock / unlock / update-branch`
+  - releases: `create / delete`
+  - gists: `create / delete`
+  - repos: `create / edit / rename / archive / unarchive / delete`
+  - workflows: `run (dispatch) / enable / disable`
+  - runs: `cancel / rerun [--failed] / delete`
+  - keys: `ssh-key add / delete`, `gpg-key add / delete`
+  - vars: `variable set / delete`
+  - cache: `cache delete`
+  - labels: `create / edit / delete`
+  - secrets: `delete` (set deferred — needs libsodium SealedBox)
 - Git-aware (shell out to `git` via `ProcessGitClient`):
-  `gh repo clone`, `gh repo fork [--clone]`, `gh repo create --clone`,
-  `gh pr checkout`, `gh pr create`.
+  `gh repo clone / fork [--clone] / create --clone`,
+  `gh pr checkout / create`.
 
 **Auth shipped:**
-`gh auth login` (OAuth device flow → Keychain),
+`gh auth login [--web] [--clipboard]` (OAuth device flow → Keychain),
 `gh auth logout`, `gh auth status` (GraphQL viewer{} probe with
-source disclosure: env vs keychain vs hosts.yml), `gh auth token`.
+source disclosure: env vs keychain vs hosts.yml; surfaces token scopes
+from X-OAuth-Scopes), `gh auth token`.
 
 **Config shipped:**
 `gh config get/set/list` — reads/writes `~/.config/gh/config.yml`
