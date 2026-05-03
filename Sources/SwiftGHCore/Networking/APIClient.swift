@@ -15,7 +15,7 @@ public actor APIClient {
     private let logger: Logger
 
     public init(
-        configuration: Configuration = .fromEnvironment(),
+        configuration: Configuration = .live(),
         session: URLSession = .shared,
         logger: Logger = Loggers.api
     ) {

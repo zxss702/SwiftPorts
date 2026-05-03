@@ -44,7 +44,7 @@ struct ApiCommand: AsyncParsableCommand {
     var includeHeaders: Bool = false
 
     func run() async throws {
-        var config = Configuration.fromEnvironment()
+        var config = Configuration.live()
         if let h = hostname { config.host = h }
         let client = APIClient(configuration: config)
 

@@ -1,3 +1,4 @@
+import Configuration
 import Foundation
 import Testing
 @testable import SwiftGHCore
@@ -49,5 +50,39 @@ import Testing
         ])
         #expect(config.host == "github.com")
         #expect(config.token == nil)
+    }
+
+    @Test func buildsFromConfigReader() {
+        // Mirrors the live() path: the same dotted keys
+        // EnvironmentVariablesProvider would expose for GH_HOST / GH_TOKEN.
+        let provider = InMemoryProvider(values: [
+            "gh.host": "ghe.example.com",
+            "gh.token": "secret-token",
+        ])
+        let reader = ConfigReader(provider: provider)
+        let config = Configuration(reader: reader)
+
+        #expect(config.host == "ghe.example.com")
+        #expect(config.token == "secret-token")
+        #expect(config.apiRoot.absoluteString == "https://ghe.example.com/api/v3")
+    }
+
+    @Test func githubTokenFallsBackThroughConfigReader() {
+        let provider = InMemoryProvider(values: [
+            "github.token": "fallback",
+        ])
+        let reader = ConfigReader(provider: provider)
+        let config = Configuration(reader: reader)
+        #expect(config.token == "fallback")
+    }
+
+    @Test func ghTokenWinsOverGithubTokenInConfigReader() {
+        let provider = InMemoryProvider(values: [
+            "gh.token": "primary",
+            "github.token": "fallback",
+        ])
+        let reader = ConfigReader(provider: provider)
+        let config = Configuration(reader: reader)
+        #expect(config.token == "primary")
     }
 }
