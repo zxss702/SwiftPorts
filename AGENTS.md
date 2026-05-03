@@ -9,24 +9,46 @@ The Go reference checkout lives at `~/Developer/Others/cli`. Read it
 liberally — every Swift command has a Go counterpart under
 `pkg/cmd/<command>/<subcommand>/`.
 
-## Sequencing (do this in order)
+## Status
 
-1. **No-auth surface first.** Public-data endpoints — `gh api` (read-only
-   paths), `gh repo view`, `gh release list/view/download`, `gh issue
-   list/view`, `gh pr list/view`, `gh search`, `gh gist view`, `gh
-   version`. The unauthenticated GitHub REST API permits ~60 req/hr per
-   IP, which is plenty for development and offline-fixture tests.
-2. **Token-from-env auth.** `GH_TOKEN`, `GITHUB_TOKEN`, `GH_HOST`. No
-   keyring, no OAuth, no interactive login yet — embedders / CI users
-   can already do everything this way.
-3. **Write surface.** `gh issue create/comment/close`, `gh pr
-   create/merge/review`, `gh release create`, `gh gist create`, etc.
-4. **Interactive login.** Device-code OAuth flow first (no browser, no
-   localhost listener). Web-OAuth flow last — needs a localhost server,
-   which is hostile to sandboxed embedders.
-5. **TUI surface.** `gh status`, the interactive `pr create` wizard,
-   `gh repo create` wizard. Lowest priority — non-interactive flags
-   already cover the same ground.
+**Done:**
+- No-auth read surface: `gh version`, `gh api`, `gh repo view`, `gh
+  release list/view/download`, `gh issue list/view`, `gh pr list/view`,
+  `gh search repos`, `gh gist view`.
+- Token-from-env auth via `GH_TOKEN`/`GITHUB_TOKEN`/`GH_HOST`. Probed
+  end-to-end via `gh auth status` (uses GraphQL viewer{}).
+- `gh auth status` and `gh auth token`.
+- Repository inference from cwd (`git remote get-url origin` shellout),
+  via the `GitClient` protocol with `ProcessGitClient` default and
+  `NoGitClient` for sandboxed embedders.
+- `GraphQLClient` actor with typed envelope decoding + aggregate-error
+  throwing.
+- `SecretStore` protocol with `InMemorySecretStore` (tests, sandboxed)
+  and `KeychainSecretStore` (Apple, Security framework). Linux libsecret
+  TBD.
+- `OAuthDeviceFlow` actor: requestDeviceCode → user types code →
+  pollForToken. Mocked tests cover happy path, all four terminal error
+  states, and the multi-attempt poll loop.
+
+**Next:**
+1. **Wire OAuth + SecretStore into `gh auth login`.** All the pieces
+   exist — needs a CLI command that runs the device flow and stashes
+   the token in Keychain.
+2. **Write surface.** `gh issue create/comment/close`, `gh pr merge`,
+   `gh release create`, `gh gist create` — pure-API writes that don't
+   need git context.
+3. **Git-aware writes.** `gh pr create` (head from current branch),
+   `gh pr checkout`, `gh repo clone`, `gh repo fork --clone`. Add
+   `clone(url:dir:)` and `checkout(ref:)` to `GitClient`.
+4. **YAML config files via swift-configuration.** Layer
+   `~/.config/gh/config.yml` and `~/.config/gh/hosts.yml` into the
+   `ConfigReader` chain. Yams for the write side.
+5. **More REST coverage.** workflow / run / label / secret / variable /
+   ssh-key / gpg-key — additive grind, ~50–150 LOC each.
+6. **GraphQL-only commands.** `gh project` family + advanced PR queries.
+   The client is in place; just need the queries.
+7. **TUI / interactive.** Lowest priority — non-interactive flags cover
+   the same ground for now.
 
 ## Build & test
 
@@ -43,9 +65,18 @@ A `release` build produces `.build/release/gh`.
 
 ```
 Sources/
-  SwiftGHCore/        Pure types: API client, models, decoders.
-                      No ArgumentParser, no I/O policy. Embeddable.
-    Networking/       APIClient, APIError, Pagination, Configuration
+  SwiftGHCore/        Pure types: clients, models, decoders. No
+                      ArgumentParser, no I/O policy. Embeddable.
+    Networking/       APIClient, APIError, Pagination, APIResponse
+    GraphQL/          GraphQLClient, GraphQLRequest, GraphQLResponse,
+                      GraphQLValue, GraphQLError, ViewerQuery
+    Auth/             OAuthDeviceFlow, DeviceCode, AccessToken,
+                      OAuthDeviceFlowError
+    Secrets/          SecretStore, InMemorySecretStore,
+                      KeychainSecretStore, DefaultSecretStore
+    Git/              GitClient, ProcessGitClient, NoGitClient,
+                      RepositoryReference+RemoteURL
+    Configuration/    Configuration (ConfigReader-backed)
     Decoding/         JSONDecoder factory + custom strategies
     Models/           One Codable struct per file. Enums for
                       string-with-fixed-values fields.
@@ -132,11 +163,47 @@ Default backend is the stdlib stream handler; embedders can swap.
 - HTTP mocking via a `URLProtocol` subclass (no Mockingbird etc.).
   `APIClient` accepts an injected `URLSession` so tests use a session
   configured with the mock protocol.
-- Live tests are tagged `.live` and run only with
-  `swift test --filter Live` or `SWIFTGH_LIVE=1`. They hit
-  `api.github.com` unauthenticated, against `octocat/Hello-World` and
-  `cli/cli` — both stable, public, and famous enough that breakage
-  signals an actual API change.
+- Live tests are tagged `.live` and gated on `SWIFTGH_LIVE=1`. They
+  hit `api.github.com` (unauthenticated for REST against
+  `octocat/Hello-World` + `cli/cli`; with `GH_TOKEN` for the GraphQL
+  viewer{} probe).
+- Real-Keychain integration tests are gated on
+  `SWIFTGH_KEYCHAIN_TESTS=1` to keep CI off the user's login keychain.
+- Suites that share `MockURLProtocol.handler` (a process global) live
+  inside one `@Suite(.serialized)` parent
+  (`HTTPMockedNetworkTests`). Swift Testing only serializes within a
+  suite hierarchy, so adding a new mocked-HTTP suite means nesting it
+  under that parent.
+
+## Adopted Apple/swiftlang packages
+
+- **swift-argument-parser** — every `*Command`.
+- **swift-log** — `Loggers.api`, `.auth`, `.cmd`.
+- **swift-http-types** + `HTTPTypesFoundation` — `HTTPRequest` /
+  `HTTPResponse` flow through `APIClient` + `GraphQLClient` +
+  `OAuthDeviceFlow`. URLSession is the transport.
+- **swift-configuration** (with `YAML` and `CommandLineArguments` traits)
+  — `Configuration.live()` reads via `ConfigReader +
+  EnvironmentVariablesProvider`. Ready to layer in
+  `~/.config/gh/config.yml` (just add a `FileProvider<YAMLSnapshot>`
+  to the chain).
+- **swift-crypto** — pulled in for the upcoming PKCE story (currently
+  unused; placeholder dep).
+- **Security** (Apple-system) — `KeychainSecretStore`.
+
+## Investigated, not adopted
+
+- **swift-openapi-generator** + `github/rest-api-description` — would
+  auto-generate every model and endpoint method from GitHub's
+  ~9 MB official OpenAPI spec. Force multiplier for a feature-complete
+  port. Tradeoffs: 9 MB spec checked in, generated-code mass, generated
+  CodingKeys diverge from our `convertFromSnakeCase` Codable
+  convention. Defer until we hit the long tail of write commands; until
+  then the hand-rolled Codable structs are a better fit.
+- **Apollo iOS** — too heavy for our needs. GraphQL surface here is
+  small (single endpoint, opaque queries); a hand-rolled
+  `GraphQLClient` is ~80 LOC and shares the `JSONDecoder.gitHub()`
+  convention.
 
 ## Third-party Go deps and their Swift stories
 
@@ -147,12 +214,12 @@ porting roadmap.
 
 | Go dep | Role | Swift story |
 |---|---|---|
-| `cli/go-gh` | gh's foundational lib (api client, config, auth, browser) | Portions of this become `SwiftGHCore`. |
-| `cli/oauth` | OAuth web + device flow | Port: `SwiftGitHubOAuth`. Pure HTTP — small. Device flow first. |
-| `cli/safeexec` | Lookup external bins | Foundation: `Process` + `which` (or skip; pure-Swift). |
-| `cli/browser` | Open URL in default browser | `NSWorkspace.shared.open` (Mac) / `UIApplication.shared.open` (iOS) / `xdg-open` (Linux). |
-| `cli/shurcooL-graphql` | GraphQL client | Port: `SwiftGraphQL`. Or just hand-roll — gh's GraphQL surface is enumerable. |
-| `zalando/go-keyring` | Credential storage | Port: `SwiftKeychain`. macOS: `Security` framework. Linux: D-Bus → libsecret. Windows: `wincred`. |
+| `cli/go-gh` | gh's foundational lib (api client, config, auth, browser) | Portions of this are now `SwiftGHCore` (api client, configuration, networking). |
+| `cli/oauth` | OAuth web + device flow | **Done** for the device flow (`SwiftGHCore/Auth/`). Web flow deferred. |
+| `cli/safeexec` | Lookup external bins | Foundation `Process` (used by `ProcessGitClient`). No standalone port needed. |
+| `cli/browser` | Open URL in default browser | `NSWorkspace.shared.open` (Mac) / `UIApplication.shared.open` (iOS) / `xdg-open` (Linux). Will land with `gh browse`. |
+| `cli/shurcooL-graphql` | GraphQL client | **Done** — hand-rolled `GraphQLClient` in `SwiftGHCore/GraphQL/` (~150 LOC). |
+| `zalando/go-keyring` | Credential storage | **Done** for Apple platforms (`KeychainSecretStore`). Linux libsecret backend TBD. |
 | `MakeNowJust/heredoc` | Strip leading indent | Swift multi-line strings handle this natively. No port. |
 | `kballard/go-shellquote` | Shell quote/unquote | ~50 LOC port; trivial. |
 | `mgutz/ansi` | ANSI colour codes | Port or use `swift-rainbow` / hand-roll. |
@@ -183,7 +250,7 @@ porting roadmap.
 | `yuin/goldmark` | Markdown parser | Used by glamour. Defer. |
 | `google/uuid` | UUIDs | `Foundation.UUID`. |
 | `google/go-cmp` | Test diffing | Swift Testing's diff is fine. |
-| `gopkg.in/yaml.v3` | YAML | Port: `Yams` already exists on SwiftPM. Use it. |
+| `gopkg.in/yaml.v3` | YAML | **swift-configuration** for reads (with `YAML` trait); `Yams` will be added when write paths land (`gh config set`, `gh auth login`). |
 | `MichaeMakeNowJust/heredoc`, `Masterminds/sprig`, `Masterminds/semver` | template helpers | Avoid; use Swift string interpolation. |
 
 The library list above is the ground truth for "what would need to
@@ -193,7 +260,9 @@ no-auth surface; revisit each as the corresponding subcommand comes up.
 ## What we deliberately do NOT support (yet)
 
 - **Web OAuth flow** — needs to spawn a browser and listen on
-  localhost. Hostile to embedded use; deferred behind device-code flow.
+  localhost. Hostile to embedded use; deferred indefinitely. The
+  device flow (already implemented in `Auth/OAuthDeviceFlow.swift`)
+  is the path forward.
 - **Glamour markdown rendering** — print raw markdown for now.
 - **TUI / interactive wizards** — pass `--title`, `--body`, `--head`,
   etc. instead.
@@ -201,6 +270,15 @@ no-auth surface; revisit each as the corresponding subcommand comes up.
 - **`gh codespace ssh`** — needs Microsoft dev-tunnels + PTY. Defer.
 - **`gh extension install`** — gh extensions are external Go binaries;
   the model needs rethinking for a Swift host.
+
+## OAuth client ID
+
+`OAuthDeviceFlow.ghCLIClientID` is the same `client_id` Go gh
+embeds (`178c6fc778ccc68e1d6a`). It works for development; **before
+SwiftGH ships publicly we must register our own OAuth app** at
+`https://github.com/settings/applications/new` and use that ID as
+the default. Reusing gh's identity would attribute SwiftGH usage
+to the upstream gh project, which is incorrect.
 
 ## Gotchas
 
