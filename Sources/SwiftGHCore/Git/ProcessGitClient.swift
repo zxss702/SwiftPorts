@@ -16,6 +16,8 @@ public struct ProcessGitClient: GitClient {
         self.gitPath = gitPath
     }
 
+    // MARK: Read
+
     public func remoteURL(named name: String) async throws -> URL? {
         let result = try await runGit(["remote", "get-url", name])
         // `git remote get-url` exits 2 with empty stdout when missing.
@@ -32,12 +34,57 @@ public struct ProcessGitClient: GitClient {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    public func upstreamBranch(of localBranch: String) async throws -> String? {
+        let result = try await runGit([
+            "rev-parse", "--abbrev-ref", "--symbolic-full-name",
+            "\(localBranch)@{upstream}",
+        ])
+        guard result.exitCode == 0 else { return nil }
+        let trimmed = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    // MARK: Write
+
+    public func clone(url: URL, directory: URL?) async throws {
+        var args = ["clone", url.absoluteString]
+        if let directory { args.append(directory.path) }
+        try await runOrThrow(args)
+    }
+
+    public func fetch(remote: String, refspec: String) async throws {
+        try await runOrThrow(["fetch", remote, refspec])
+    }
+
+    public func checkout(ref: String) async throws {
+        try await runOrThrow(["checkout", ref])
+    }
+
+    public func push(remote: String, refspec: String, setUpstream: Bool) async throws {
+        var args = ["push"]
+        if setUpstream { args.append("-u") }
+        args.append(contentsOf: [remote, refspec])
+        try await runOrThrow(args)
+    }
+
+    public func addRemote(name: String, url: URL) async throws {
+        try await runOrThrow(["remote", "add", name, url.absoluteString])
+    }
+
     // MARK: Process invocation
 
-    private struct ProcessResult: Sendable {
+    struct ProcessResult: Sendable {
         let exitCode: Int32
         let stdout: String
         let stderr: String
+    }
+
+    private func runOrThrow(_ args: [String]) async throws {
+        let result = try await runGit(args)
+        guard result.exitCode == 0 else {
+            throw GitClientError.gitFailed(
+                args: args, exitCode: result.exitCode, stderr: result.stderr)
+        }
     }
 
     private func runGit(_ args: [String]) async throws -> ProcessResult {
