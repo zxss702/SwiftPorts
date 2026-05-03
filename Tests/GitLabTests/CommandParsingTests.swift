@@ -503,4 +503,29 @@ import Testing
         let cmd = try ApiCommand.parse(["projects/1", "-i"])
         #expect(cmd.includeHeaders == true)
     }
+
+    // MARK: Label
+
+    @Test func labelListLimit() throws {
+        let cmd = try LabelList.parse(["-R", "g/r", "-l", "20"])
+        #expect(cmd.repo?.fullPath == "g/r")
+        #expect(cmd.limit == 20)
+    }
+
+    @Test func labelCreateRequiresName() throws {
+        let cmd = try LabelCreate.parse([
+            "bug",
+            "-c", "ff0000",
+            "-d", "Something is broken",
+        ])
+        #expect(cmd.name == "bug")
+        #expect(cmd.color == "ff0000")
+        #expect(cmd.labelDescription == "Something is broken")
+    }
+
+    @Test func labelDeleteSkipsPromptWithYes() throws {
+        let cmd = try LabelDelete.parse(["bug", "-y"])
+        #expect(cmd.name == "bug")
+        #expect(cmd.skipPrompt == true)
+    }
 }
