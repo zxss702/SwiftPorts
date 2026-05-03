@@ -20,6 +20,14 @@ struct VariableSet: AsyncParsableCommand {
           help: "Mark the variable masked in job logs.")
     var masked: Bool = false
 
+    @Flag(name: .customLong("raw"),
+          help: "Treat the value as raw — disable variable expansion.")
+    var raw: Bool = false
+
+    @Option(name: [.customShort("t"), .customLong("type")],
+            help: "Variable type: `env_var` (default) or `file`.")
+    var variableType: String?
+
     @Option(name: .customLong("scope"),
             help: "Environment scope. Defaults to all (`*`).")
     var scope: String?
@@ -36,12 +44,15 @@ struct VariableSet: AsyncParsableCommand {
         let variableType: String?
         let `protected`: Bool
         let masked: Bool
+        let raw: Bool
         let environmentScope: String?
     }
     private struct UpdateBody: Encodable {
         let value: String
+        let variableType: String?
         let `protected`: Bool
         let masked: Bool
+        let raw: Bool
         let environmentScope: String?
     }
 
@@ -61,8 +72,8 @@ struct VariableSet: AsyncParsableCommand {
         // does. Try update first; fall back to create on 404.
         let path = "projects/\(target.encodedPath)/variables/\(key)"
         let updateBody = UpdateBody(
-            value: resolved,
-            protected: `protected`, masked: masked,
+            value: resolved, variableType: variableType,
+            protected: `protected`, masked: masked, raw: raw,
             environmentScope: scope)
         do {
             let _: Variable = try await client.send(
@@ -74,8 +85,8 @@ struct VariableSet: AsyncParsableCommand {
         }
 
         let createBody = CreateBody(
-            key: key, value: resolved, variableType: nil,
-            protected: `protected`, masked: masked,
+            key: key, value: resolved, variableType: variableType,
+            protected: `protected`, masked: masked, raw: raw,
             environmentScope: scope)
         let _: Variable = try await client.send(
             method: .post,

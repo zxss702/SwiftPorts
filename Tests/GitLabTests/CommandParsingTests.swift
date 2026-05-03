@@ -410,6 +410,16 @@ import Testing
         #expect(cmd.scope == "production")
     }
 
+    @Test func variableSetRawAndType() throws {
+        let cmd = try VariableSet.parse([
+            "DEPLOY_KEY", "key-contents",
+            "--raw",
+            "-t", "file",
+        ])
+        #expect(cmd.raw == true)
+        #expect(cmd.variableType == "file")
+    }
+
     @Test func variableUnsetRequiresKey() throws {
         let cmd = try VariableUnset.parse(["API_TOKEN"])
         #expect(cmd.key == "API_TOKEN")
