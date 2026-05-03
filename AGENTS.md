@@ -15,7 +15,10 @@ liberally — every Swift command has a Go counterpart under
 `gh version`, `gh api`, `gh repo view/list`,
 `gh release list/view/download`, `gh issue list/view`, `gh pr list/view/diff/checks`,
 `gh search repos/code/commits/issues/prs`, `gh gist view/list`,
-`gh workflow list/view`, `gh run list/view`, `gh label list`,
+`gh workflow list/view`,
+`gh run list/view [--jobs | --job ID | --log | --log-failed | --exit-status]`,
+`gh run watch / download`,
+`gh label list`,
 `gh project list/view/item-list`,
 `gh ssh-key list`, `gh gpg-key list`, `gh org list`,
 `gh secret list`, `gh variable list/get`, `gh cache list`,
@@ -29,7 +32,7 @@ liberally — every Swift command has a Go counterpart under
   - gists: `create / delete`
   - repos: `create / edit / rename / archive / unarchive / delete`
   - workflows: `run (dispatch) / enable / disable`
-  - runs: `cancel / rerun [--failed] / delete`
+  - runs: `cancel / rerun [--failed] / delete / watch / download`
   - keys: `ssh-key add / delete`, `gpg-key add / delete`
   - vars: `variable set / delete`
   - cache: `cache delete`
