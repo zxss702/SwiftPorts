@@ -1,0 +1,22 @@
+import Foundation
+
+/// Errors thrown by ``APIClient``.
+public enum APIError: Error, Sendable {
+    /// Non-2xx HTTP response. `message` is the server's error message
+    /// when parseable (`{"message": "..."}`), otherwise empty.
+    case http(status: Int, message: String, url: URL)
+    /// 401 / 403 with no token configured.
+    case unauthenticated(url: URL)
+    /// 403 with rate-limit headers indicating exhaustion. `resetAt`
+    /// is the wall-clock time when the limit refreshes.
+    case rateLimited(resetAt: Date?, remaining: Int, url: URL)
+    /// 404 — disambiguated from generic HTTP for command-level
+    /// exit-code mapping.
+    case notFound(url: URL)
+    /// `URLSession` error (DNS failure, timeout, TLS, etc.).
+    case transport(underlying: Error)
+    /// JSON parse failure on a 2xx body.
+    case decoding(underlying: Error, url: URL)
+    /// Server returned 2xx but body wasn't the expected media type.
+    case unexpectedContentType(String?, url: URL)
+}
