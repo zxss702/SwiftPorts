@@ -19,6 +19,9 @@ struct PrView: AsyncParsableCommand {
     @Flag(name: .long, help: "Print the JSON response body.")
     var json: Bool = false
 
+    @Flag(name: .long, help: "Also fetch and print the PR's comments.")
+    var comments: Bool = false
+
     func run() async throws {
         let target = try await RepositoryResolver.resolve(flag: repo)
         let client = try await CommandContext.apiClient()
@@ -47,6 +50,29 @@ struct PrView: AsyncParsableCommand {
         print("url: \(pr.htmlUrl.absoluteString)")
         if let body = pr.body, !body.isEmpty {
             print("\n--\n\(body)")
+        }
+        if comments {
+            try await renderComments(target: target, client: client)
+        }
+    }
+
+    /// Fetch + pretty-print the PR's discussion thread. PRs share
+    /// GitHub's `/issues/<n>/comments` endpoint with issues — review
+    /// comments live elsewhere and aren't part of this feed.
+    private func renderComments(target: RepositoryReference, client: APIClient) async throws {
+        let list: [IssueComment] = try await client.get(
+            "repos/\(target.slug)/issues/\(number)/comments")
+        guard !list.isEmpty else {
+            print("\n--\n(no comments)")
+            return
+        }
+        print("\n--\n\(ANSI.bold("Comments (\(list.count))"))")
+        let f = ISO8601DateFormatter()
+        for comment in list {
+            print("\n@\(comment.user.login)  \(f.string(from: comment.createdAt))")
+            if let body = comment.body, !body.isEmpty {
+                print(body)
+            }
         }
     }
 }
