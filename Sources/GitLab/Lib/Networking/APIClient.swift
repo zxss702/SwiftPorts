@@ -193,6 +193,13 @@ public actor APIClient {
 
     private func checkStatus(_ r: APIResponse) throws {
         if (200..<300).contains(r.status) { return }
+        // GitLab uses 304 across several write endpoints
+        // (subscribe/unsubscribe, todo mark-as-done, …) to mean "no
+        // change needed because the resource is already in the
+        // requested state". We only get here without sending
+        // `If-None-Match` / `If-Modified-Since` ourselves, so any 304
+        // is a GitLab-style no-op-success rather than a cache hit.
+        if r.status == 304 { return }
         if r.status == 404 { throw APIError.notFound(url: r.url) }
         if r.status == 401 { throw APIError.unauthenticated(url: r.url) }
         let message = parseMessage(from: r.body) ?? ""

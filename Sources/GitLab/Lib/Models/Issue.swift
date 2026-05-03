@@ -11,6 +11,7 @@ public struct Issue: Codable, Sendable, Identifiable {
     public let description: String?
     public let state: IssueState
     public let confidential: Bool
+    public let discussionLocked: Bool?
     public let labels: [String]
     public let milestone: Milestone?
     public let author: User?

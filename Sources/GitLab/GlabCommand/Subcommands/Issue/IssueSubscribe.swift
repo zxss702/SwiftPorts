@@ -27,7 +27,7 @@ struct IssueSubscribe: AsyncParsableCommand {
         }
         let client = try await CommandContext.apiClient(host: target.host)
         let path = "projects/\(target.encodedPath)/issues/\(parsed.iid)/subscribe"
-        let _: Issue = try await client.send(method: .post, path: path, body: EmptyBody())
+        try await client.send(method: .post, path: path, body: EmptyBody())
         print("Subscribed to #\(parsed.iid).")
     }
 }
@@ -57,7 +57,7 @@ struct IssueUnsubscribe: AsyncParsableCommand {
         }
         let client = try await CommandContext.apiClient(host: target.host)
         let path = "projects/\(target.encodedPath)/issues/\(parsed.iid)/unsubscribe"
-        let _: Issue = try await client.send(method: .post, path: path, body: EmptyBody())
+        try await client.send(method: .post, path: path, body: EmptyBody())
         print("Unsubscribed from #\(parsed.iid).")
     }
 }

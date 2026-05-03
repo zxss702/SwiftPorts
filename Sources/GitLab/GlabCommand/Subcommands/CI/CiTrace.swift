@@ -2,7 +2,6 @@ import ArgumentParser
 import Foundation
 import ForgeKit
 import GitLab
-import HTTPTypes
 
 struct CiTrace: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -63,25 +62,27 @@ struct CiTrace: AsyncParsableCommand {
         }
     }
 
-    /// Fetch trace bytes starting at `fromOffset` and write any new
-    /// bytes to stdout. Returns the number of bytes written.
+    /// Fetch the job's trace and write only the bytes past
+    /// `fromOffset` to stdout. Returns the number of new bytes
+    /// written.
+    ///
+    /// GitLab's `/jobs/:id/trace` endpoint always returns the whole
+    /// log; it ignores `Range:` requests. So we re-fetch every poll
+    /// and slice out only the tail we haven't printed yet — matching
+    /// upstream `glab ci trace`'s approach.
     private func streamChunk(
         jobId: Int,
         repo: RepositoryReference,
         client: APIClient,
         fromOffset: Int
     ) async throws -> Int {
-        var headers: HTTPFields = [:]
-        if fromOffset > 0 {
-            headers[.range] = "bytes=\(fromOffset)-"
-        }
         let response = try await client.raw(
             method: .get,
-            path: "projects/\(repo.encodedPath)/jobs/\(jobId)/trace",
-            extraHeaders: headers)
+            path: "projects/\(repo.encodedPath)/jobs/\(jobId)/trace")
         let data = response.body
-        guard !data.isEmpty else { return 0 }
-        FileHandle.standardOutput.write(data)
-        return data.count
+        guard data.count > fromOffset else { return 0 }
+        let new = data.subdata(in: fromOffset..<data.count)
+        FileHandle.standardOutput.write(new)
+        return new.count
     }
 }
