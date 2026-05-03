@@ -752,4 +752,22 @@ struct GitCommandParsingTests {
             _ = try GitCommand.parseAsRoot(["bogus"])
         }
     }
+
+    @Test("init: bare invocation initializes the cwd")
+    func initBare() throws {
+        let cmd = try parse(["init"], as: GitInit.self)
+        #expect(cmd.bare == false)
+        #expect(cmd.directory == nil)
+        #expect(cmd.initialBranch == nil)
+    }
+
+    @Test("init: --bare + -b <branch> + directory")
+    func initFullForm() throws {
+        let cmd = try parse(
+            ["init", "--bare", "-b", "main", "/tmp/r"],
+            as: GitInit.self)
+        #expect(cmd.bare == true)
+        #expect(cmd.initialBranch == "main")
+        #expect(cmd.directory == "/tmp/r")
+    }
 }
