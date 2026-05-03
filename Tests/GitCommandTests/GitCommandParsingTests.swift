@@ -770,4 +770,24 @@ struct GitCommandParsingTests {
         #expect(cmd.initialBranch == "main")
         #expect(cmd.directory == "/tmp/r")
     }
+
+    @Test("describe: defaults to HEAD with annotated-only matches")
+    func describeDefaults() throws {
+        let cmd = try parse(["describe"], as: Describe.self)
+        #expect(cmd.committish == "HEAD")
+        #expect(cmd.tags == false)
+        #expect(cmd.dirty == false)
+        #expect(cmd.abbrev == 7)
+    }
+
+    @Test("describe: --tags + --dirty + custom abbrev + ref")
+    func describeFullForm() throws {
+        let cmd = try parse(
+            ["describe", "--tags", "--dirty", "--abbrev", "10", "feature/x"],
+            as: Describe.self)
+        #expect(cmd.tags == true)
+        #expect(cmd.dirty == true)
+        #expect(cmd.abbrev == 10)
+        #expect(cmd.committish == "feature/x")
+    }
 }
