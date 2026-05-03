@@ -73,6 +73,62 @@ private func git_branch_name_cstr(_ ref: OpaquePointer?) -> UnsafePointer<CChar>
 }
 
 extension GitClient {
+    /// List configured remote names. Sorted alphabetically to match
+    /// `git remote`'s default order.
+    public func remoteList() async throws -> [String] {
+        try withRepository { repo in
+            var arr = git_strarray()
+            try check(git_remote_list(&arr, repo))
+            defer { git_strarray_dispose(&arr) }
+            var names: [String] = []
+            for i in 0..<arr.count {
+                if let cstr = arr.strings?[i] {
+                    names.append(String(cString: cstr))
+                }
+            }
+            return names.sorted()
+        }
+    }
+
+    /// Delete a remote and the associated `branch.<x>.remote` config
+    /// entries (libgit2 does the cleanup).
+    public func remoteDelete(name: String) async throws {
+        try withRepository { repo in
+            try check(name.withCString { n in
+                git_remote_delete(repo, n)
+            })
+        }
+    }
+
+    /// Rename `oldName` → `newName`. Returns the list of unfixable
+    /// branch refspec problems libgit2 surfaces (typically empty).
+    @discardableResult
+    public func remoteRename(from oldName: String, to newName: String) async throws -> [String] {
+        try withRepository { repo in
+            var problems = git_strarray()
+            try check(git_remote_rename(&problems, repo, oldName, newName))
+            defer { git_strarray_dispose(&problems) }
+            var names: [String] = []
+            for i in 0..<problems.count {
+                if let cstr = problems.strings?[i] {
+                    names.append(String(cString: cstr))
+                }
+            }
+            return names
+        }
+    }
+
+    /// Update an existing remote's URL.
+    public func remoteSetURL(name: String, url: URL) async throws {
+        try withRepository { repo in
+            try check(name.withCString { n in
+                url.absoluteString.withCString { u in
+                    git_remote_set_url(repo, n, u)
+                }
+            })
+        }
+    }
+
     /// True when a remote with `name` is already configured. Mirrors
     /// `git config remote.<name>.url` existence; used by `git remote add`
     /// to fail fast with the same error wording git uses.

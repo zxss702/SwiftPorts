@@ -33,6 +33,26 @@ extension GitClient {
         }
     }
 
+    /// Tracked file paths (everything currently in the index).
+    /// Equivalent of `git ls-files`.
+    public func indexedPaths() async throws -> [String] {
+        try withRepository { repo in
+            var index: OpaquePointer?
+            try check(git_repository_index(&index, repo))
+            defer { git_index_free(index) }
+            let count = Int(git_index_entrycount(index))
+            var paths: [String] = []
+            paths.reserveCapacity(count)
+            for i in 0..<count {
+                if let entry = git_index_get_byindex(index, i)?.pointee,
+                   let p = entry.path {
+                    paths.append(String(cString: p))
+                }
+            }
+            return paths
+        }
+    }
+
     /// True when `workingDirectory` is inside a non-bare repo.
     public func isInsideWorkTree() async throws -> Bool {
         // We rely on `withRepository` succeeding plus a non-nil

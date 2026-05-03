@@ -38,6 +38,11 @@ public struct GitCommand: AsyncParsableCommand {
             Show.self,
             Mv.self,
             Rm.self,
+            Config.self,
+            Switch.self,
+            Restore.self,
+            LsFiles.self,
+            Clean.self,
         ]
     )
 
