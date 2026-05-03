@@ -7,6 +7,7 @@ public struct GlabCommand: AsyncParsableCommand {
         version: "0.1.0-dev",
         subcommands: [
             VersionCommand.self,
+            ApiCommand.self,
             AuthCommand.self,
             IssueCommand.self,
             MrCommand.self,

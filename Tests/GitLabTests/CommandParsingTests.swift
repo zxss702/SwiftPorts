@@ -468,4 +468,39 @@ import Testing
         #expect(cmd.enableMRs == true)
         #expect(cmd.disableIssues == false)
     }
+
+    // MARK: api
+
+    @Test func apiAcceptsBareEndpoint() throws {
+        let cmd = try ApiCommand.parse(["projects/123"])
+        #expect(cmd.endpoint == "projects/123")
+        #expect(cmd.method == "GET")
+        #expect(cmd.fields.isEmpty)
+        #expect(cmd.rawFields.isEmpty)
+    }
+
+    @Test func apiPostWithFields() throws {
+        let cmd = try ApiCommand.parse([
+            "-X", "POST", "projects/1/issues",
+            "-f", "title=Bug",
+            "-F", "labels=ui,bug",
+        ])
+        #expect(cmd.method == "POST")
+        #expect(cmd.endpoint == "projects/1/issues")
+        #expect(cmd.rawFields == ["title=Bug"])
+        #expect(cmd.fields == ["labels=ui,bug"])
+    }
+
+    @Test func apiHostnameOverride() throws {
+        let cmd = try ApiCommand.parse([
+            "/user",
+            "--hostname", "gitlab.example.com",
+        ])
+        #expect(cmd.hostname == "gitlab.example.com")
+    }
+
+    @Test func apiIncludeHeadersFlag() throws {
+        let cmd = try ApiCommand.parse(["projects/1", "-i"])
+        #expect(cmd.includeHeaders == true)
+    }
 }
