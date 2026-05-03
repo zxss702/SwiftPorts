@@ -167,7 +167,8 @@ cycle. SwiftBash never depends on an executable target.
 Detailed status, command inventory, and GitLab-specific conventions:
 see [Docs/GitLab.md](Docs/GitLab.md). Today's surface: full `glab
 issue` (list / view / create / update / close / reopen / note /
-subscribe / unsubscribe / delete / board), full `glab mr` (list / view
+subscribe / unsubscribe / delete / board {list / view / create /
+delete}), full `glab mr` (list / view
 / create / update / close / reopen / merge / approve / unapprove / note
 / subscribe / unsubscribe / checkout / diff / delete), `glab ci` (list
 / view / trace / status / retry / cancel / run), `glab repo` (view /

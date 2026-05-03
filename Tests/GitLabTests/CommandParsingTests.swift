@@ -268,4 +268,42 @@ import Testing
         let cmd = try RepoDelete.parse(["-R", "labs/x", "-y"])
         #expect(cmd.yes == true)
     }
+
+    // MARK: Board
+
+    @Test func boardListAccepts() throws {
+        let cmd = try IssueBoardList.parse(["-R", "labs/x", "-P", "10"])
+        #expect(cmd.repo?.fullPath == "labs/x")
+        #expect(cmd.perPage == 10)
+    }
+
+    @Test func boardCreatePositionalName() throws {
+        let cmd = try IssueBoardCreate.parse(["My Board"])
+        #expect(cmd.positionalName == "My Board")
+        #expect(cmd.name == nil)
+    }
+
+    @Test func boardCreateNameFlag() throws {
+        let cmd = try IssueBoardCreate.parse(["-n", "My Board"])
+        #expect(cmd.positionalName == nil)
+        #expect(cmd.name == "My Board")
+    }
+
+    @Test func boardViewIdOptional() throws {
+        let bare = try IssueBoardView.parse([])
+        #expect(bare.boardId == nil)
+        let withId = try IssueBoardView.parse(["28"])
+        #expect(withId.boardId == 28)
+    }
+
+    @Test func boardViewWebFlag() throws {
+        let cmd = try IssueBoardView.parse(["28", "-w"])
+        #expect(cmd.web == true)
+    }
+
+    @Test func boardDeleteRequiresIdAndYes() throws {
+        let cmd = try IssueBoardDelete.parse(["28", "-y"])
+        #expect(cmd.boardId == 28)
+        #expect(cmd.yes == true)
+    }
 }

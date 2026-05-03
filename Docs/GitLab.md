@@ -36,8 +36,12 @@ glab issue note <id>      --message (req)
 glab issue subscribe <id>
 glab issue unsubscribe <id>
 glab issue delete <id>
-glab issue board [view]   Opens the kanban board page in a browser
-                          (terminal kanban TUI from upstream is not ported)
+glab issue board list                  list project boards
+glab issue board view [<id>]           pretty-print metadata; no <id>
+                                       opens the boards page in browser
+glab issue board create [<name>]       --name / -n <name>
+glab issue board delete <id>           --yes / -y skips the confirm prompt
+                                       (otherwise re-types the board name)
 ```
 
 `<id>` for any of the above is one of: `123`, `#123`, or a full URL
@@ -197,9 +201,10 @@ cwd remote.
   you pass `-d -` or omit `-t` to drop into `$EDITOR`. Not ported;
   pass the body inline via `-d "..."`.
 - **`glab mr rebase`** — niche; the rest of the MR surface is in.
-- **Kanban board TUI** — `glab issue board` opens the board page in
-  a browser (`https://<host>/<path>/-/boards`). The terminal kanban
-  interface from upstream isn't ported.
+- **Kanban board TUI** — board *management* (list / view / create /
+  delete) is wired via the API. The terminal kanban TUI from upstream
+  is not ported; `glab issue board view` with no ID opens the boards
+  page in a browser, which gives you GitLab's full drag-and-drop UI.
 - **`glab ci config / lint / artifact / delete / get / trigger`** —
   the rest of the CI surface beyond list/view/trace/status/retry/
   cancel/run.
