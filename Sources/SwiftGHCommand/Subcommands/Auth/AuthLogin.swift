@@ -39,6 +39,14 @@ struct AuthLogin: AsyncParsableCommand {
           help: "Overwrite an existing token for the host.")
     var force: Bool = false
 
+    @Flag(name: [.short, .customLong("web")],
+          help: "Open the verification URL automatically after printing the code.")
+    var openInBrowser: Bool = false
+
+    @Flag(name: [.customShort("c"), .customLong("clipboard")],
+          help: "Copy the user code to the clipboard.")
+    var copyToClipboard: Bool = false
+
     func run() async throws {
         let resolver = ConfigurationResolver()
 
@@ -79,11 +87,33 @@ struct AuthLogin: AsyncParsableCommand {
     private func runDeviceFlow() async throws -> String {
         let scopes = (["repo", "read:org", "gist"] + extraScopes).deduplicated()
         let flow = OAuthDeviceFlow(clientID: clientID, host: hostname)
+        let openInBrowser = self.openInBrowser
+        let copyToClipboard = self.copyToClipboard
         print("Starting device-code flow against \(hostname)…")
         let token = try await flow.authorize(scopes: scopes) { code in
             print("")
-            print("! Open this URL in any browser: \(code.verificationUri.absoluteString)")
-            print("! And enter the code: \(code.userCode)")
+            if copyToClipboard {
+                do {
+                    try await Clipboard.write(code.userCode)
+                    print("! One-time code (\(ANSI.bold(code.userCode))) copied to clipboard.")
+                } catch {
+                    print("! \(ANSI.yellow("Couldn't copy to clipboard: \(error.localizedDescription)"))")
+                    print("! First copy your one-time code: \(ANSI.bold(code.userCode))")
+                }
+            } else {
+                print("! First copy your one-time code: \(ANSI.bold(code.userCode))")
+            }
+            if openInBrowser {
+                print("! Opening \(code.verificationUri.absoluteString) in your browser…")
+                do {
+                    try await Browser.open(code.verificationUri)
+                } catch {
+                    print("! \(ANSI.yellow("Couldn't open the browser: \(error.localizedDescription)"))")
+                    print("! Open this URL in any browser: \(code.verificationUri.absoluteString)")
+                }
+            } else {
+                print("! Open this URL in any browser: \(code.verificationUri.absoluteString)")
+            }
             print("  (waiting for authorization; codes expire in \(code.expiresIn / 60) min)")
             print("")
         }
