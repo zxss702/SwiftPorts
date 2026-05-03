@@ -16,6 +16,13 @@ struct ProjectCommand: AsyncParsableCommand {
             ProjectItemArchive.self,
             ProjectItemDelete.self,
             ProjectFieldListCommand.self,
+            ProjectCopy.self,
+            ProjectMarkTemplate.self,
+            ProjectLink.self,
+            ProjectUnlink.self,
+            ProjectFieldCreate.self,
+            ProjectFieldDelete.self,
+            ProjectItemEdit.self,
         ]
     )
 }

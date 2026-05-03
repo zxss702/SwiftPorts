@@ -80,6 +80,115 @@ public enum ProjectMutations {
         }
         """
 
+    public static let copyProject = """
+        mutation($projectId: ID!, $targetOwnerId: ID!, $title: String!, $includeDraftIssues: Boolean) {
+          copyProjectV2(input: {projectId: $projectId, ownerId: $targetOwnerId, title: $title, includeDraftIssues: $includeDraftIssues}) {
+            projectV2 {
+              id, number, title, shortDescription, readme, url, public, closed, createdAt, updatedAt
+            }
+          }
+        }
+        """
+
+    public static let markProjectAsTemplate = """
+        mutation($projectId: ID!) {
+          markProjectV2AsTemplate(input: {projectId: $projectId}) {
+            projectV2 { id, template }
+          }
+        }
+        """
+
+    public static let unmarkProjectAsTemplate = """
+        mutation($projectId: ID!) {
+          unmarkProjectV2AsTemplate(input: {projectId: $projectId}) {
+            projectV2 { id, template }
+          }
+        }
+        """
+
+    public static let linkProjectToRepository = """
+        mutation($projectId: ID!, $repositoryId: ID!) {
+          linkProjectV2ToRepository(input: {projectId: $projectId, repositoryId: $repositoryId}) {
+            repository { nameWithOwner }
+          }
+        }
+        """
+
+    public static let unlinkProjectFromRepository = """
+        mutation($projectId: ID!, $repositoryId: ID!) {
+          unlinkProjectV2FromRepository(input: {projectId: $projectId, repositoryId: $repositoryId}) {
+            repository { nameWithOwner }
+          }
+        }
+        """
+
+    public static let linkProjectToTeam = """
+        mutation($projectId: ID!, $teamId: ID!) {
+          linkProjectV2ToTeam(input: {projectId: $projectId, teamId: $teamId}) {
+            team { name }
+          }
+        }
+        """
+
+    public static let unlinkProjectFromTeam = """
+        mutation($projectId: ID!, $teamId: ID!) {
+          unlinkProjectV2FromTeam(input: {projectId: $projectId, teamId: $teamId}) {
+            team { name }
+          }
+        }
+        """
+
+    // MARK: Field create / delete
+
+    public static let createField = """
+        mutation($projectId: ID!, $name: String!, $dataType: ProjectV2CustomFieldType!, $options: [ProjectV2SingleSelectFieldOptionInput!]) {
+          createProjectV2Field(input: {projectId: $projectId, name: $name, dataType: $dataType, singleSelectOptions: $options}) {
+            projectV2Field {
+              __typename
+              ... on ProjectV2Field { id name dataType }
+              ... on ProjectV2IterationField { id name dataType }
+              ... on ProjectV2SingleSelectField {
+                id name dataType
+                options { id name }
+              }
+            }
+          }
+        }
+        """
+
+    public static let deleteField = """
+        mutation($fieldId: ID!) {
+          deleteProjectV2Field(input: {fieldId: $fieldId}) {
+            projectV2Field {
+              __typename
+              ... on ProjectV2Field { id name dataType }
+              ... on ProjectV2IterationField { id name dataType }
+              ... on ProjectV2SingleSelectField { id name dataType }
+            }
+          }
+        }
+        """
+
+    // MARK: Item field-value editing
+
+    /// Discriminated by which `value` key is set; pass exactly one.
+    public static let updateItemFieldValue = """
+        mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldValue!) {
+          updateProjectV2ItemFieldValue(input: {projectId: $projectId, itemId: $itemId, fieldId: $fieldId, value: $value}) {
+            projectV2Item { id }
+          }
+        }
+        """
+
+    /// Clear a value (text / number / date / select / iteration).
+    public static let clearItemFieldValue = """
+        mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!) {
+          clearProjectV2ItemFieldValue(input: {projectId: $projectId, itemId: $itemId, fieldId: $fieldId}) {
+            projectV2Item { id }
+          }
+        }
+        """
+
     // MARK: Fields (read)
 
     public static let viewerProjectFields = """
@@ -166,6 +275,22 @@ public enum ProjectMutations {
             __typename
             ... on Issue { id }
             ... on PullRequest { id }
+          }
+        }
+        """
+
+    /// Resolve `repository(owner:, name:).id`.
+    public static let repositoryId = """
+        query($owner: String!, $name: String!) {
+          repository(owner: $owner, name: $name) { id }
+        }
+        """
+
+    /// Resolve `organization.team(slug:).id`.
+    public static let teamId = """
+        query($org: String!, $slug: String!) {
+          organization(login: $org) {
+            team(slug: $slug) { id }
           }
         }
         """
@@ -265,6 +390,104 @@ public struct UserIdResponse: Codable, Sendable {
 
 public struct OrganizationIdResponse: Codable, Sendable {
     public let organization: NodeID?
+}
+
+public struct RepositoryIdResponse: Codable, Sendable {
+    public let repository: NodeID?
+}
+
+public struct TeamIdResponse: Codable, Sendable {
+    public let organization: TeamContainer?
+    public struct TeamContainer: Codable, Sendable {
+        public let team: NodeID?
+    }
+}
+
+public struct CopyProjectResponse: Codable, Sendable {
+    public let copyProjectV2: Inner
+    public struct Inner: Codable, Sendable {
+        public let projectV2: ProjectV2
+    }
+}
+
+public struct MarkProjectAsTemplateResponse: Codable, Sendable {
+    public let markProjectV2AsTemplate: Inner?
+    public struct Inner: Codable, Sendable {
+        public let projectV2: TemplateState
+    }
+    public struct TemplateState: Codable, Sendable {
+        public let id: String
+        public let template: Bool
+    }
+}
+
+public struct UnmarkProjectAsTemplateResponse: Codable, Sendable {
+    public let unmarkProjectV2AsTemplate: Inner?
+    public struct Inner: Codable, Sendable {
+        public let projectV2: MarkProjectAsTemplateResponse.TemplateState
+    }
+}
+
+public struct LinkProjectToRepositoryResponse: Codable, Sendable {
+    public let linkProjectV2ToRepository: Inner?
+    public struct Inner: Codable, Sendable {
+        public let repository: RepoStub
+    }
+    public struct RepoStub: Codable, Sendable {
+        public let nameWithOwner: String
+    }
+}
+
+public struct UnlinkProjectFromRepositoryResponse: Codable, Sendable {
+    public let unlinkProjectV2FromRepository: Inner?
+    public struct Inner: Codable, Sendable {
+        public let repository: LinkProjectToRepositoryResponse.RepoStub
+    }
+}
+
+public struct LinkProjectToTeamResponse: Codable, Sendable {
+    public let linkProjectV2ToTeam: Inner?
+    public struct Inner: Codable, Sendable {
+        public let team: TeamStub
+    }
+    public struct TeamStub: Codable, Sendable {
+        public let name: String
+    }
+}
+
+public struct UnlinkProjectFromTeamResponse: Codable, Sendable {
+    public let unlinkProjectV2FromTeam: Inner?
+    public struct Inner: Codable, Sendable {
+        public let team: LinkProjectToTeamResponse.TeamStub
+    }
+}
+
+public struct CreateFieldResponse: Codable, Sendable {
+    public let createProjectV2Field: Inner
+    public struct Inner: Codable, Sendable {
+        public let projectV2Field: ProjectV2FieldDescriptor
+    }
+}
+
+public struct DeleteFieldResponse: Codable, Sendable {
+    public let deleteProjectV2Field: Inner
+    public struct Inner: Codable, Sendable {
+        public let projectV2Field: ProjectV2FieldDescriptor
+    }
+}
+
+public struct UpdateItemFieldValueResponse: Codable, Sendable {
+    public let updateProjectV2ItemFieldValue: Inner
+    public struct Inner: Codable, Sendable {
+        public let projectV2Item: NodeID
+    }
+}
+
+public struct ClearItemFieldValueResponse: Codable, Sendable {
+    public let clearProjectV2ItemFieldValue: Inner
+    public struct Inner: Codable, Sendable {
+        public let projectV2Item: NodeID
+    }
 }
 
 public struct ResourceIdResponse: Codable, Sendable {

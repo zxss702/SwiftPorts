@@ -77,6 +77,38 @@ struct ProjectIDs {
         }
         return id
     }
+
+    /// Resolve a `repository(owner:, name:)` to its node ID.
+    static func repositoryID(
+        ref: RepositoryReference, gql: GraphQLClient
+    ) async throws -> String {
+        let response: RepositoryIdResponse = try await gql.query(
+            ProjectMutations.repositoryId,
+            variables: [
+                "owner": .string(ref.owner),
+                "name": .string(ref.name),
+            ])
+        guard let id = response.repository?.id else {
+            throw ProjectIDError.noSuchRepository(ref.slug)
+        }
+        return id
+    }
+
+    /// Resolve an org's team by slug to its node ID.
+    static func teamID(
+        org: String, slug: String, gql: GraphQLClient
+    ) async throws -> String {
+        let response: TeamIdResponse = try await gql.query(
+            ProjectMutations.teamId,
+            variables: [
+                "org": .string(org),
+                "slug": .string(slug),
+            ])
+        guard let id = response.organization?.team?.id else {
+            throw ProjectIDError.noSuchTeam(org: org, slug: slug)
+        }
+        return id
+    }
 }
 
 enum ProjectIDError: Error, LocalizedError {
@@ -84,6 +116,8 @@ enum ProjectIDError: Error, LocalizedError {
     case noSuchOrg(String)
     case noSuchProject(owner: String, number: Int)
     case noSuchResource(String)
+    case noSuchRepository(String)
+    case noSuchTeam(org: String, slug: String)
 
     var errorDescription: String? {
         switch self {
@@ -95,6 +129,10 @@ enum ProjectIDError: Error, LocalizedError {
             return "No project #\(number) for owner '\(owner)'."
         case .noSuchResource(let url):
             return "GitHub couldn't resolve \(url) to an issue or PR."
+        case .noSuchRepository(let slug):
+            return "GitHub couldn't resolve repository '\(slug)'."
+        case .noSuchTeam(let org, let slug):
+            return "Org '\(org)' has no team with slug '\(slug)'."
         }
     }
 }
