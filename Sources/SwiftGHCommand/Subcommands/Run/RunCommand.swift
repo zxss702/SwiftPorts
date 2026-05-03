@@ -7,6 +7,8 @@ struct RunCommand: AsyncParsableCommand {
         subcommands: [
             RunList.self,
             RunView.self,
+            RunWatch.self,
+            RunDownload.self,
             RunCancel.self,
             RunRerun.self,
             RunDelete.self,
