@@ -11,44 +11,65 @@ liberally — every Swift command has a Go counterpart under
 
 ## Status
 
-**Done:**
-- No-auth read surface: `gh version`, `gh api`, `gh repo view`, `gh
-  release list/view/download`, `gh issue list/view`, `gh pr list/view`,
-  `gh search repos`, `gh gist view`.
-- Token-from-env auth via `GH_TOKEN`/`GITHUB_TOKEN`/`GH_HOST`. Probed
-  end-to-end via `gh auth status` (uses GraphQL viewer{}).
-- `gh auth status` and `gh auth token`.
-- Repository inference from cwd (`git remote get-url origin` shellout),
-  via the `GitClient` protocol with `ProcessGitClient` default and
-  `NoGitClient` for sandboxed embedders.
-- `GraphQLClient` actor with typed envelope decoding + aggregate-error
-  throwing.
-- `SecretStore` protocol with `InMemorySecretStore` (tests, sandboxed)
-  and `KeychainSecretStore` (Apple, Security framework). Linux libsecret
-  TBD.
-- `OAuthDeviceFlow` actor: requestDeviceCode → user types code →
-  pollForToken. Mocked tests cover happy path, all four terminal error
-  states, and the multi-attempt poll loop.
+**Read commands shipped:**
+`gh version`, `gh api`, `gh repo view`, `gh repo list`,
+`gh release list/view/download`, `gh issue list/view`, `gh pr list/view`,
+`gh search repos/code/commits/issues/prs`, `gh gist view/list`,
+`gh workflow list/view`, `gh run list/view`, `gh label list`.
 
-**Next:**
-1. **Wire OAuth + SecretStore into `gh auth login`.** All the pieces
-   exist — needs a CLI command that runs the device flow and stashes
-   the token in Keychain.
-2. **Write surface.** `gh issue create/comment/close`, `gh pr merge`,
-   `gh release create`, `gh gist create` — pure-API writes that don't
-   need git context.
-3. **Git-aware writes.** `gh pr create` (head from current branch),
+**Write commands shipped:**
+`gh issue create/comment/close/reopen`, `gh release create/delete`,
+`gh gist create/delete`.
+
+**Auth shipped:**
+`gh auth login` (OAuth device flow → Keychain),
+`gh auth logout`, `gh auth status` (GraphQL viewer{} probe with
+source disclosure: env vs keychain), `gh auth token`.
+
+**Foundation shipped:**
+- `ConfigurationResolver` with precedence
+  `GH_TOKEN > GITHUB_TOKEN > SecretStore[host]`.
+- `GitClient` protocol; `ProcessGitClient` infers repo from
+  `git remote get-url origin`. Used by `RepositoryResolver` so every
+  `--repo`-taking command becomes optional.
+- `APIClient.send<Body, Response>` / `delete` for typed write paths.
+- `GraphQLClient` actor with envelope decoding + aggregate-error throwing.
+- `OAuthDeviceFlow` actor (full RFC 8628 flow with all terminal error
+  states mapped; mocked test covers multi-attempt poll loop).
+- `SecretStore` protocol; `KeychainSecretStore` (Apple), `InMemorySecretStore`.
+- `MinimalRepository` for trimmed list/search payloads.
+- `TTY` + `ANSI` helpers (NO_COLOR / CLICOLOR_FORCE honored).
+
+**Adopted (Apple/swiftlang):** `swift-argument-parser`, `swift-log`,
+`swift-http-types`, `swift-configuration` (+ YAML / CommandLineArguments
+traits), `swift-crypto`, `Security` framework.
+
+**Next, in roughly priority order:**
+1. **Git-aware writes.** `gh pr create` (head from current branch),
    `gh pr checkout`, `gh repo clone`, `gh repo fork --clone`. Add
    `clone(url:dir:)` and `checkout(ref:)` to `GitClient`.
-4. **YAML config files via swift-configuration.** Layer
-   `~/.config/gh/config.yml` and `~/.config/gh/hosts.yml` into the
-   `ConfigReader` chain. Yams for the write side.
-5. **More REST coverage.** workflow / run / label / secret / variable /
-   ssh-key / gpg-key — additive grind, ~50–150 LOC each.
-6. **GraphQL-only commands.** `gh project` family + advanced PR queries.
-   The client is in place; just need the queries.
-7. **TUI / interactive.** Lowest priority — non-interactive flags cover
-   the same ground for now.
+2. **YAML config files.** Layer `~/.config/gh/config.yml` and
+   `~/.config/gh/hosts.yml` into `ConfigurationResolver` via
+   swift-configuration's `FileProvider<YAMLSnapshot>`. Add Yams for
+   the write side (`gh config set`, `gh auth login` host-write).
+3. **More REST coverage.** secret / variable / ssh-key / gpg-key /
+   ruleset / cache. All additive.
+4. **GraphQL-only commands.** `gh project` family + advanced PR queries.
+5. **`gh repo create/clone/fork/delete`** — needs git integration for
+   the clone path.
+6. **`gh pr merge/comment/edit/review/diff/checks`** — straightforward
+   once PR write surface lands.
+7. **`gh release upload`** + `gh release delete-asset` — multipart
+   uploads.
+8. **`gh browse`** — open URL in default browser
+   (NSWorkspace / xdg-open / start).
+9. **TUI / interactive wizards** — lowest priority; non-interactive
+   flags cover the same ground.
+
+**Skipped indefinitely:** `gh attestation` (Sigstore stack),
+`gh codespace ssh` (dev-tunnels + PTY), `gh extension install`
+(Go-binary plugin model), web-OAuth flow (browser + localhost
+listener; device flow is sufficient).
 
 ## Build & test
 
@@ -67,7 +88,8 @@ A `release` build produces `.build/release/gh`.
 Sources/
   SwiftGHCore/        Pure types: clients, models, decoders. No
                       ArgumentParser, no I/O policy. Embeddable.
-    Networking/       APIClient, APIError, Pagination, APIResponse
+    Networking/       APIClient (get/paginate/raw/send/delete),
+                      APIError, Pagination, APIResponse
     GraphQL/          GraphQLClient, GraphQLRequest, GraphQLResponse,
                       GraphQLValue, GraphQLError, ViewerQuery
     Auth/             OAuthDeviceFlow, DeviceCode, AccessToken,
@@ -76,9 +98,16 @@ Sources/
                       KeychainSecretStore, DefaultSecretStore
     Git/              GitClient, ProcessGitClient, NoGitClient,
                       RepositoryReference+RemoteURL
-    Configuration/    Configuration (ConfigReader-backed)
+    Configuration/    Configuration (ConfigReader-backed),
+                      ConfigurationResolver, TokenSource
+    IO/               TTY (isatty + NO_COLOR/CLICOLOR_FORCE),
+                      ANSI (inert when colour disabled)
     Decoding/         JSONDecoder factory + custom strategies
     Models/           One Codable struct per file. Enums for
+                      string-with-fixed-values fields.
+    Models/Requests/  Encodable structs for write payloads
+                      (IssueCreate, IssueComment, IssueStateUpdate,
+                       ReleaseCreate, GistCreate, …)
                       string-with-fixed-values fields.
     Logging/          swift-log Logger constants
   SwiftGHCommand/     Argument-Parser layer.
