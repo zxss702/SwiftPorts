@@ -19,8 +19,14 @@ liberally — every Swift command has a Go counterpart under
 `gh project list/view/item-list`.
 
 **Write commands shipped:**
-`gh issue create/comment/close/reopen`, `gh release create/delete`,
-`gh gist create/delete`.
+- API-only: `gh issue create/comment/close/reopen`,
+  `gh pr merge/close/reopen/comment`,
+  `gh release create/delete`,
+  `gh gist create/delete`,
+  `gh repo create`.
+- Git-aware (shell out to `git` via `ProcessGitClient`):
+  `gh repo clone`, `gh repo fork [--clone]`, `gh repo create --clone`,
+  `gh pr checkout`, `gh pr create`.
 
 **Auth shipped:**
 `gh auth login` (OAuth device flow → Keychain),
@@ -37,8 +43,12 @@ gh are read by SwiftGH and vice versa).
   `GH_TOKEN > GITHUB_TOKEN > SecretStore[host] > hosts.yml.oauth_token`.
 - `ConfigFile` + `HostsFile` (Yams-backed read+write,
   upstream-gh-format-compatible). 0o600 file perms / 0o700 dir perms.
-- `GitClient` protocol; `ProcessGitClient` infers repo from
-  `git remote get-url origin`. Used by `RepositoryResolver` so every
+- `GitClient` protocol with reads (`remoteURL`, `currentBranch`,
+  `upstreamBranch`) AND writes (`clone`, `fetch`, `checkout`, `push`,
+  `addRemote`). `ProcessGitClient` shells out to `git` so the user's
+  ssh-agent / credential helpers / commit signing / hooks all apply.
+  `NoGitClient` throws `GitClientError.gitUnavailable` from writes
+  for sandboxed embedders. Used by `RepositoryResolver` so every
   `--repo`-taking command becomes optional.
 - `APIClient.send<Body, Response>` / `delete` for typed write paths.
 - `GraphQLClient` actor with envelope decoding + aggregate-error throwing.
@@ -56,23 +66,18 @@ CommandLineArguments traits), `swift-crypto`, `Yams` (YAML write
 side), `Security` framework.
 
 **Next, in roughly priority order:**
-1. **Git-aware writes.** `gh pr create` (head from current branch),
-   `gh pr checkout`, `gh repo clone`, `gh repo fork --clone`. Add
-   `clone(url:dir:)`, `fetch(refspec:)`, `checkout(ref:)`,
-   `createBranch(name:)`, `push(remote:branch:)` to `GitClient`.
-2. **More REST coverage.** secret / variable / ssh-key / gpg-key /
-   ruleset / cache. All additive.
-3. **GraphQL writes.** `gh project field-list/item-add/item-edit/item-archive/item-delete`,
+1. **More REST coverage.** secret / variable / ssh-key / gpg-key /
+   ruleset / cache / `gh repo delete` (needs the `delete_repo` OAuth
+   scope, omitted by default to mirror upstream gh).
+2. **GraphQL writes.** `gh project field-list/item-add/item-edit/item-archive/item-delete`,
    `gh issue develop`. Same client; just queries + mutations.
-4. **`gh repo create/delete/fork`** — pure REST except for the clone
-   path (needs item 1).
-5. **`gh pr merge/comment/edit/review/diff/checks`** — straightforward
-   once PR write surface lands.
-6. **`gh release upload`** + `gh release delete-asset` — multipart
-   uploads.
-7. **`gh browse`** — open URL in default browser
+3. **`gh pr edit/review/diff/checks`** — straightforward once we have
+   review-comment + check-run models.
+4. **`gh release upload`** + `gh release delete-asset` — multipart uploads.
+5. **`gh issue/pr edit`** — PATCH-back the title/body/labels/etc.
+6. **`gh browse`** — open URL in default browser
    (NSWorkspace / xdg-open / start).
-8. **TUI / interactive wizards** — lowest priority; non-interactive
+7. **TUI / interactive wizards** — lowest priority; non-interactive
    flags cover the same ground.
 
 **Skipped indefinitely:** `gh attestation` (Sigstore stack),
