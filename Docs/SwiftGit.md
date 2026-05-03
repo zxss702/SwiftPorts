@@ -54,11 +54,17 @@ let client = GitClient(
 | `blame(path:)` → `[BlameHunk]` | `git blame <path>` |
 | `configGet/Set/Unset/List(scope:)` | `git config --local/--global/--system` |
 | `commitDetailed(...)` | `git commit` with full diff stats + author/committer split |
+| `describe(committish:tags:abbrev:dirty:)` | `git describe [--tags] [--dirty] [--abbrev <n>]` |
+| `lsTree(treeish:recursive:)` → `[TreeEntry]` | `git ls-tree [-r] <treeish>` |
+| `objectMetadata(of:)` / `catFileBlob(_:)` | `git cat-file -t/-s` and `-p` (blobs) |
+| `reflog(refName:)` → `[ReflogEntry]` | `git reflog [<ref>]` |
+| `apply(diff:location:)` | `git apply [--cached, --index]` |
 
 ### Writes
 
 | Method | Maps to |
 |---|---|
+| `initRepository(bare:initialBranch:reinit:)` | `git init [--bare] [-b <branch>]` |
 | `clone(url:directory:)` | `git clone <url> [<dir>]` |
 | `fetch(remote:refspec:)` | `git fetch <remote> <refspec>` |
 | `pull(...)` / `pullRebase(...)` | `git pull` / `git pull --rebase` |
