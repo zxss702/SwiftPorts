@@ -221,8 +221,10 @@ public enum Archive {
         if FileManager.default.fileExists(atPath: zipURL.path) {
             try FileManager.default.removeItem(at: zipURL)
         }
-        guard let archive = ZIPFoundation.Archive(
-            url: zipURL, accessMode: .create) else {
+        let archive: ZIPFoundation.Archive
+        do {
+            archive = try ZIPFoundation.Archive(url: zipURL, accessMode: .create)
+        } catch {
             throw ZipKitError.archiveOpenFailed(zipURL.path)
         }
 
@@ -360,10 +362,11 @@ public enum Archive {
     // MARK: Helpers
 
     private static func openArchive(at url: URL) throws -> ZIPFoundation.Archive {
-        guard let archive = ZIPFoundation.Archive(url: url, accessMode: .read) else {
+        do {
+            return try ZIPFoundation.Archive(url: url, accessMode: .read)
+        } catch {
             throw ZipKitError.archiveOpenFailed(url.path)
         }
-        return archive
     }
 
     private static func openArchive(data: Data) throws -> ZIPFoundation.Archive {

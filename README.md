@@ -76,9 +76,13 @@ unpacking it — without ever running `Process`.
   `repo` (view / list / create / clone / fork / archive / unarchive /
   delete), `auth` (status / login PAT-based / logout / token).
   See [Docs/GitLab.md](Docs/GitLab.md).
-- **`git`** — clone / fetch / checkout / push / add / commit /
-  remote / branch / version. Backed by libgit2 in-process; HTTPS
-  auth via a `CredentialProvider` callback.
+- **`git`** — full local-side surface: `clone / fetch / pull
+  {--rebase} / push / status / log / diff / show / commit / merge /
+  rebase / cherry-pick / reset / checkout / switch / restore / add /
+  rm / mv / clean / stash / tag / branch / remote / config /
+  rev-parse / ls-files`. Backed by libgit2 in-process; HTTPS auth
+  via a `CredentialProvider` callback. Output and exit-code
+  semantics mirror real git for every supported case.
 - **`zip` / `unzip`** — the most-used Info-ZIP flag set, no shellout.
 
 ## Quick start
