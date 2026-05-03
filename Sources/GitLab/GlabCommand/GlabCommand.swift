@@ -12,6 +12,7 @@ public struct GlabCommand: AsyncParsableCommand {
             MrCommand.self,
             CiCommand.self,
             RepoCommand.self,
+            ReleaseCommand.self,
         ]
     )
 
