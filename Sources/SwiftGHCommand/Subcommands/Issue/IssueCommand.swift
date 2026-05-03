@@ -16,6 +16,7 @@ struct IssueCommand: AsyncParsableCommand {
             IssueUnlock.self,
             IssuePin.self,
             IssueUnpin.self,
+            IssueDevelop.self,
         ]
     )
 }
