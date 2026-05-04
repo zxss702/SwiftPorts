@@ -1,3 +1,10 @@
+// Integration tests that fork the system `git` via `Process` for parity
+// checks. Windows has no `/usr/bin/env`, and the swift-android-action's
+// MSVC clang doesn't see a stable `git.exe` path either, so gate the
+// whole suite to non-Windows. Apple/Linux still cover the integration
+// surface; Windows-side logic is covered by the unit-shape tests in
+// `GitCommandTests` and `GitLabTests`.
+#if !os(Windows)
 import Foundation
 import Testing
 import ForgeKit
@@ -163,3 +170,4 @@ struct GitClientCherryPickTests {
         #expect(!FileManager.default.fileExists(atPath: cph.path))
     }
 }
+#endif
