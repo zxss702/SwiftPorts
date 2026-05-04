@@ -55,7 +55,7 @@ extension GitClient {
             // Check out the start-point's tree + point HEAD at the new branch.
             var coOpts = git_checkout_options()
             try check(git_checkout_options_init(&coOpts, UInt32(GIT_CHECKOUT_OPTIONS_VERSION)))
-            coOpts.checkout_strategy = GIT_CHECKOUT_SAFE.rawValue
+            coOpts.checkout_strategy = UInt32(GIT_CHECKOUT_SAFE.rawValue)
             try check(git_checkout_tree(repo, startObject, &coOpts))
 
             if let refName = git_reference_name(newBranch) {
@@ -82,7 +82,7 @@ extension GitClient {
             try copies.withUnsafeMutableBufferPointer { buf in
                 var opts = git_checkout_options()
                 try check(git_checkout_options_init(&opts, UInt32(GIT_CHECKOUT_OPTIONS_VERSION)))
-                opts.checkout_strategy = GIT_CHECKOUT_FORCE.rawValue
+                opts.checkout_strategy = UInt32(GIT_CHECKOUT_FORCE.rawValue)
                 opts.paths = git_strarray(strings: buf.baseAddress, count: buf.count)
                 try check(git_checkout_index(repo, index, &opts))
             }
@@ -108,7 +108,7 @@ extension GitClient {
             try copies.withUnsafeMutableBufferPointer { buf in
                 var opts = git_checkout_options()
                 try check(git_checkout_options_init(&opts, UInt32(GIT_CHECKOUT_OPTIONS_VERSION)))
-                opts.checkout_strategy = GIT_CHECKOUT_FORCE.rawValue
+                opts.checkout_strategy = UInt32(GIT_CHECKOUT_FORCE.rawValue)
                 opts.paths = git_strarray(strings: buf.baseAddress, count: buf.count)
                 try check(git_checkout_tree(repo, tree, &opts))
             }

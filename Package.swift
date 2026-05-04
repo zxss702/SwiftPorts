@@ -71,15 +71,19 @@ let package = Package(
         // Community
         .package(url: "https://github.com/jpsim/Yams",
                  from: "6.0.0"),
-        .package(url: "https://github.com/weichsel/ZIPFoundation",
-                 from: "0.9.19"),
+        // Pinned to a fork while https://github.com/weichsel/ZIPFoundation/pull/<TBD>
+        // is open — adds explicit `import Bionic` so the package compiles on
+        // Android. Roll back to upstream once the PR lands.
+        .package(url: "https://github.com/odrobnik/ZIPFoundation",
+                 branch: "fix/android-windows-imports"),
 
-        // libgit2 1.9.x packaged as a SwiftPM C target — fork of upstream
-        // with a Package.swift that compiles libgit2 from source. We
-        // depend only on the C library; the Swift wrapper is ours
-        // (Sources/Git/Lib).
-        .package(url: "https://github.com/ibrahimcetin/libgit2",
-                 from: "1.9.2"),
+        // libgit2 1.9.x packaged as a SwiftPM C target. We pin to our
+        // own fork while https://github.com/ibrahimcetin/libgit2/pull/<TBD>
+        // is open — it adds Windows + Android arms to Package.swift so
+        // the SwiftPM build covers all five of our CI platforms. Roll
+        // back to upstream once the PR lands.
+        .package(url: "https://github.com/odrobnik/libgit2",
+                 branch: "windows-android-platforms"),
     ],
     targets: [
         // MARK: ForgeKit (host-agnostic plumbing)

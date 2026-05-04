@@ -19,9 +19,9 @@ public struct StashSaveFlags: OptionSet, Sendable {
     public init(rawValue: UInt32) { self.rawValue = rawValue }
 
     public static let `default`         = StashSaveFlags([])
-    public static let keepIndex         = StashSaveFlags(rawValue: GIT_STASH_KEEP_INDEX.rawValue)
-    public static let includeUntracked  = StashSaveFlags(rawValue: GIT_STASH_INCLUDE_UNTRACKED.rawValue)
-    public static let includeIgnored    = StashSaveFlags(rawValue: GIT_STASH_INCLUDE_IGNORED.rawValue)
+    public static let keepIndex         = StashSaveFlags(rawValue: UInt32(GIT_STASH_KEEP_INDEX.rawValue))
+    public static let includeUntracked  = StashSaveFlags(rawValue: UInt32(GIT_STASH_INCLUDE_UNTRACKED.rawValue))
+    public static let includeIgnored    = StashSaveFlags(rawValue: UInt32(GIT_STASH_INCLUDE_IGNORED.rawValue))
 }
 
 extension GitClient {
@@ -71,7 +71,7 @@ extension GitClient {
             try check(git_stash_apply_options_init(
                 &opts, UInt32(GIT_STASH_APPLY_OPTIONS_VERSION)))
             if reinstateIndex {
-                opts.flags = GIT_STASH_APPLY_REINSTATE_INDEX.rawValue
+                opts.flags = UInt32(GIT_STASH_APPLY_REINSTATE_INDEX.rawValue)
             }
             try check(git_stash_apply(repo, index, &opts))
         }
@@ -84,7 +84,7 @@ extension GitClient {
             try check(git_stash_apply_options_init(
                 &opts, UInt32(GIT_STASH_APPLY_OPTIONS_VERSION)))
             if reinstateIndex {
-                opts.flags = GIT_STASH_APPLY_REINSTATE_INDEX.rawValue
+                opts.flags = UInt32(GIT_STASH_APPLY_REINSTATE_INDEX.rawValue)
             }
             try check(git_stash_pop(repo, index, &opts))
         }
@@ -252,7 +252,7 @@ extension GitClient {
             defer { git_object_free(object) }
             var opts = git_checkout_options()
             try check(git_checkout_options_init(&opts, UInt32(GIT_CHECKOUT_OPTIONS_VERSION)))
-            opts.checkout_strategy = GIT_CHECKOUT_SAFE.rawValue
+            opts.checkout_strategy = UInt32(GIT_CHECKOUT_SAFE.rawValue)
             try check(git_checkout_tree(repo, object, &opts))
             if let refName = git_reference_name(newBranch) {
                 try check(git_repository_set_head(repo, refName))

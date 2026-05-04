@@ -79,7 +79,7 @@ extension GitClient {
             defer { git_revwalk_free(walker) }
 
             try check(git_revwalk_sorting(walker,
-                GIT_SORT_TIME.rawValue | GIT_SORT_TOPOLOGICAL.rawValue))
+                UInt32(GIT_SORT_TIME.rawValue) | UInt32(GIT_SORT_TOPOLOGICAL.rawValue)))
 
             // Push starts (or HEAD if none specified).
             if query.starts.isEmpty {

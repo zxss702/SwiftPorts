@@ -19,10 +19,10 @@ struct CredentialsTests {
     private func acquire(
         url: String,
         usernameFromURL: String? = nil,
-        allowed: UInt32 = GIT_CREDENTIAL_USERPASS_PLAINTEXT.rawValue
-            | GIT_CREDENTIAL_SSH_KEY.rawValue
-            | GIT_CREDENTIAL_USERNAME.rawValue
-            | GIT_CREDENTIAL_DEFAULT.rawValue,
+        allowed: UInt32 = UInt32(GIT_CREDENTIAL_USERPASS_PLAINTEXT.rawValue)
+            | UInt32(GIT_CREDENTIAL_SSH_KEY.rawValue)
+            | UInt32(GIT_CREDENTIAL_USERNAME.rawValue)
+            | UInt32(GIT_CREDENTIAL_DEFAULT.rawValue),
         provider: @escaping CredentialProvider
     ) -> (Int32, UnsafeMutablePointer<git_credential>?) {
         var out: UnsafeMutablePointer<git_credential>?
@@ -85,7 +85,7 @@ struct CredentialsTests {
     func usernameCredential() async throws {
         let (rc, cred) = acquire(
             url: "ssh://git@example.com/x.git",
-            allowed: GIT_CREDENTIAL_USERNAME.rawValue,
+            allowed: UInt32(GIT_CREDENTIAL_USERNAME.rawValue),
             provider: { _, _, _ in .username("git") })
         defer { if let cred { git_credential_free(cred) } }
         #expect(rc == 0)
@@ -96,7 +96,7 @@ struct CredentialsTests {
     func defaultCredential() async throws {
         let (rc, cred) = acquire(
             url: "https://example.com/x.git",
-            allowed: GIT_CREDENTIAL_DEFAULT.rawValue,
+            allowed: UInt32(GIT_CREDENTIAL_DEFAULT.rawValue),
             provider: { _, _, _ in .default })
         defer { if let cred { git_credential_free(cred) } }
         #expect(rc == 0)
@@ -120,7 +120,7 @@ struct CredentialsTests {
         // Userpass-allowed → returns a token.
         let (rc1, cred1) = acquire(
             url: "https://example.com/x.git",
-            allowed: GIT_CREDENTIAL_USERPASS_PLAINTEXT.rawValue,
+            allowed: UInt32(GIT_CREDENTIAL_USERPASS_PLAINTEXT.rawValue),
             provider: provider)
         defer { if let cred1 { git_credential_free(cred1) } }
         #expect(rc1 == 0)
@@ -129,7 +129,7 @@ struct CredentialsTests {
         // SSH-only → no userpass allowed → provider returns nil → passthrough.
         let (rc2, cred2) = acquire(
             url: "ssh://git@example.com/x.git",
-            allowed: GIT_CREDENTIAL_SSH_KEY.rawValue,
+            allowed: UInt32(GIT_CREDENTIAL_SSH_KEY.rawValue),
             provider: provider)
         defer { if let cred2 { git_credential_free(cred2) } }
         #expect(rc2 == -30)

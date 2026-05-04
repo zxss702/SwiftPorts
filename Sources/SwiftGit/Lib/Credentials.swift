@@ -8,13 +8,16 @@ public struct CredentialKind: OptionSet, Sendable, Hashable {
     public let rawValue: UInt32
     public init(rawValue: UInt32) { self.rawValue = rawValue }
 
-    public static let userPassword = CredentialKind(rawValue: GIT_CREDENTIAL_USERPASS_PLAINTEXT.rawValue)
-    public static let sshKey       = CredentialKind(rawValue: GIT_CREDENTIAL_SSH_KEY.rawValue)
-    public static let sshCustom    = CredentialKind(rawValue: GIT_CREDENTIAL_SSH_CUSTOM.rawValue)
-    public static let `default`    = CredentialKind(rawValue: GIT_CREDENTIAL_DEFAULT.rawValue)
-    public static let sshInteractive = CredentialKind(rawValue: GIT_CREDENTIAL_SSH_INTERACTIVE.rawValue)
-    public static let username     = CredentialKind(rawValue: GIT_CREDENTIAL_USERNAME.rawValue)
-    public static let sshMemory    = CredentialKind(rawValue: GIT_CREDENTIAL_SSH_MEMORY.rawValue)
+    // Clang on MSVC imports libgit2's enums with an `Int32` raw value;
+    // Apple/Linux import them as `UInt32`. Funnel through `UInt32(...)`
+    // so both platforms match the `OptionSet`'s `UInt32` rawValue.
+    public static let userPassword = CredentialKind(rawValue: UInt32(GIT_CREDENTIAL_USERPASS_PLAINTEXT.rawValue))
+    public static let sshKey       = CredentialKind(rawValue: UInt32(GIT_CREDENTIAL_SSH_KEY.rawValue))
+    public static let sshCustom    = CredentialKind(rawValue: UInt32(GIT_CREDENTIAL_SSH_CUSTOM.rawValue))
+    public static let `default`    = CredentialKind(rawValue: UInt32(GIT_CREDENTIAL_DEFAULT.rawValue))
+    public static let sshInteractive = CredentialKind(rawValue: UInt32(GIT_CREDENTIAL_SSH_INTERACTIVE.rawValue))
+    public static let username     = CredentialKind(rawValue: UInt32(GIT_CREDENTIAL_USERNAME.rawValue))
+    public static let sshMemory    = CredentialKind(rawValue: UInt32(GIT_CREDENTIAL_SSH_MEMORY.rawValue))
 }
 
 /// What our caller hands back from a `CredentialProvider`. We translate

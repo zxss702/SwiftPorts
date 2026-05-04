@@ -90,10 +90,10 @@ extension GitClient {
             try check(git_status_options_init(&opts, UInt32(GIT_STATUS_OPTIONS_VERSION)))
             opts.show = GIT_STATUS_SHOW_INDEX_AND_WORKDIR
             opts.flags =
-                GIT_STATUS_OPT_INCLUDE_UNTRACKED.rawValue
-                | GIT_STATUS_OPT_RECURSE_UNTRACKED_DIRS.rawValue
-                | GIT_STATUS_OPT_RENAMES_HEAD_TO_INDEX.rawValue
-                | GIT_STATUS_OPT_RENAMES_INDEX_TO_WORKDIR.rawValue
+                UInt32(GIT_STATUS_OPT_INCLUDE_UNTRACKED.rawValue)
+                | UInt32(GIT_STATUS_OPT_RECURSE_UNTRACKED_DIRS.rawValue)
+                | UInt32(GIT_STATUS_OPT_RENAMES_HEAD_TO_INDEX.rawValue)
+                | UInt32(GIT_STATUS_OPT_RENAMES_INDEX_TO_WORKDIR.rawValue)
 
             var list: OpaquePointer?
             try check(git_status_list_new(&list, repo, &opts))
@@ -207,26 +207,30 @@ extension GitClient {
             return delta.old_file.path.map { String(cString: $0) }
         }()
 
-        let s = raw.status.rawValue
-        let conflicted = (s & GIT_STATUS_CONFLICTED.rawValue) != 0
-        let ignored = (s & GIT_STATUS_IGNORED.rawValue) != 0
-        let untracked = (s & GIT_STATUS_WT_NEW.rawValue) != 0
+        // Funnel libgit2's status bitmask + each `GIT_STATUS_*` constant
+        // through `UInt32(...)` so the bitwise math typechecks under
+        // both Apple/Linux's UInt32-rawValue import and clang-cl/MSVC's
+        // Int32-rawValue import.
+        let s = UInt32(raw.status.rawValue)
+        let conflicted = (s & UInt32(GIT_STATUS_CONFLICTED.rawValue)) != 0
+        let ignored = (s & UInt32(GIT_STATUS_IGNORED.rawValue)) != 0
+        let untracked = (s & UInt32(GIT_STATUS_WT_NEW.rawValue)) != 0
             && (s & UInt32(0x7F)) == 0   // no index-side changes
 
         // Map the libgit2 status bitmask to our two column states.
         var index: StatusEntry.ChangeKind = .unchanged
-        if      (s & GIT_STATUS_INDEX_NEW.rawValue) != 0       { index = .newFile }
-        else if (s & GIT_STATUS_INDEX_MODIFIED.rawValue) != 0  { index = .modified }
-        else if (s & GIT_STATUS_INDEX_DELETED.rawValue) != 0   { index = .deleted }
-        else if (s & GIT_STATUS_INDEX_RENAMED.rawValue) != 0   { index = .renamed }
-        else if (s & GIT_STATUS_INDEX_TYPECHANGE.rawValue) != 0{ index = .typeChange }
+        if      (s & UInt32(GIT_STATUS_INDEX_NEW.rawValue)) != 0       { index = .newFile }
+        else if (s & UInt32(GIT_STATUS_INDEX_MODIFIED.rawValue)) != 0  { index = .modified }
+        else if (s & UInt32(GIT_STATUS_INDEX_DELETED.rawValue)) != 0   { index = .deleted }
+        else if (s & UInt32(GIT_STATUS_INDEX_RENAMED.rawValue)) != 0   { index = .renamed }
+        else if (s & UInt32(GIT_STATUS_INDEX_TYPECHANGE.rawValue)) != 0{ index = .typeChange }
 
         var workdir: StatusEntry.ChangeKind = .unchanged
-        if      (s & GIT_STATUS_WT_NEW.rawValue) != 0          { workdir = .newFile }
-        if      (s & GIT_STATUS_WT_MODIFIED.rawValue) != 0     { workdir = .modified }
-        else if (s & GIT_STATUS_WT_DELETED.rawValue) != 0      { workdir = .deleted }
-        else if (s & GIT_STATUS_WT_RENAMED.rawValue) != 0      { workdir = .renamed }
-        else if (s & GIT_STATUS_WT_TYPECHANGE.rawValue) != 0   { workdir = .typeChange }
+        if      (s & UInt32(GIT_STATUS_WT_NEW.rawValue)) != 0          { workdir = .newFile }
+        if      (s & UInt32(GIT_STATUS_WT_MODIFIED.rawValue)) != 0     { workdir = .modified }
+        else if (s & UInt32(GIT_STATUS_WT_DELETED.rawValue)) != 0      { workdir = .deleted }
+        else if (s & UInt32(GIT_STATUS_WT_RENAMED.rawValue)) != 0      { workdir = .renamed }
+        else if (s & UInt32(GIT_STATUS_WT_TYPECHANGE.rawValue)) != 0   { workdir = .typeChange }
 
         return StatusEntry(
             path: newPath, oldPath: oldPath,

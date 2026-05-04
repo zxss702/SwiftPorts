@@ -1,3 +1,9 @@
+// Windows: ZIPFoundation's MemoryFile fallback uses `tmpfile()` (no
+// `funopen`/`fopencookie` available there), so writes go to disk and
+// the `Archive.data` getter never sees them. In-memory archive tests
+// can't run until we wire up a CreateFileMapping-backed FILE stream;
+// gate the suite to non-Windows for now.
+#if !os(Windows)
 import Foundation
 import Testing
 import ZIPFoundation
@@ -51,3 +57,5 @@ import ZIPFoundation
             })
     }
 }
+
+#endif

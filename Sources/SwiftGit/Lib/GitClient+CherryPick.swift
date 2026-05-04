@@ -48,7 +48,7 @@ extension GitClient {
             try check(git_cherrypick_options_init(
                 &opts, UInt32(GIT_CHERRYPICK_OPTIONS_VERSION)))
             opts.checkout_opts.checkout_strategy =
-                GIT_CHECKOUT_SAFE.rawValue | GIT_CHECKOUT_ALLOW_CONFLICTS.rawValue
+                UInt32(GIT_CHECKOUT_SAFE.rawValue) | UInt32(GIT_CHECKOUT_ALLOW_CONFLICTS.rawValue)
             try check(git_cherrypick(repo, sourceCommit, &opts))
 
             // Conflict?

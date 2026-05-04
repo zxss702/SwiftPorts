@@ -173,7 +173,7 @@ public struct GitClient: ForgeKit.GitClient {
 
             var opts = git_checkout_options()
             try check(git_checkout_options_init(&opts, UInt32(GIT_CHECKOUT_OPTIONS_VERSION)))
-            opts.checkout_strategy = GIT_CHECKOUT_SAFE.rawValue
+            opts.checkout_strategy = UInt32(GIT_CHECKOUT_SAFE.rawValue)
 
             try check(git_checkout_tree(repo, object, &opts))
 

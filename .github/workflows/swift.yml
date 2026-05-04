@@ -32,27 +32,24 @@ jobs:
         run: swift test -v --skip-build --no-parallel
 
   build-ios:
-    # Compile-only check on `generic/platform=iOS` (no simulator boots).
-    # Catches API/portability breaks against the iOS SDK without paying
-    # for a simulator phase. An iOS Simulator `xcodebuild test` step
-    # was attempted but surfaces a separate class of issues (one test
-    # hangs the simulator long enough to trigger xcodebuild's restart-
-    # and-fail logic, even though a re-run passes); tracking that as
-    # follow-up work rather than blocking this PR.
+    # Build + test on the iOS Simulator. Process-using SwiftGit
+    # integration tests are gated `#if os(macOS) || os(Linux)` so they
+    # don't compile here; the unit-shape suites in GitCommandTests,
+    # GitLabTests, GitHubTests, ZipKitTests still run.
     runs-on: macos-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
       - name: Select Xcode 26.0
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "26.0"
-      - name: Build (iOS — all package targets)
+      - name: Test (iOS Simulator)
         run: |
           xcodebuild \
             -scheme SwiftPorts-Package \
-            -destination 'generic/platform=iOS' \
-            build
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            test
 
   build-linux:
     # Linux: full build + test, parity with Apple platforms.
@@ -77,11 +74,15 @@ jobs:
         run: swift test -v --skip-build --no-parallel
 
   build-windows:
-    # Investigation job: Windows support is not yet a committed
-    # compatibility target, so collect compiler/test failures without
-    # blocking existing macOS / iOS / Linux CI.
+    # Full Windows build. The libgit2 fork
+    # (`odrobnik/libgit2#windows-android-platforms`) wires up
+    # WinHTTP / SSPI / BCrypt; the ZIPFoundation fork
+    # (`odrobnik/ZIPFoundation#fix/android-windows-imports`) ships
+    # POSIX-compat shims (`PosixCompat+Windows.swift`) for the
+    # mode_t / S_IF* / fseeko / timegm bits MSVC doesn't expose. The
+    # whole tree (`zip`, `unzip`, `gh`, `glab`, `git`) compiles here.
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - name: Setup Swift
@@ -94,48 +95,76 @@ jobs:
         # vcpkg is preinstalled on windows-latest at C:\vcpkg.
         # x64-windows-static-md gives us a `zlib.lib` linked against
         # the dynamic UCRT, which matches Swift's default link mode.
+        # Persist the resolved zlib.lib path for the build / test
+        # steps — vcpkg's exact output filename varies between runs
+        # (sometimes `zlib.lib`, occasionally hidden under a sibling
+        # debug/ subfolder), and SwiftPM's lld-link won't search by
+        # bare name reliably.
         shell: pwsh
         run: |
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install zlib --triplet x64-windows-static-md
+          $base = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md"
+          $zlib = Get-ChildItem -Path "$base\lib" -Filter "zlib*.lib" -File | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $zlib) {
+            Write-Error "could not find zlib.lib under $base\lib"
+            Get-ChildItem -Recurse "$base" | Select-Object FullName
+            exit 1
+          }
+          "ZLIB_LIB=$zlib"   | Out-File -FilePath $env:GITHUB_ENV -Append
+          "ZLIB_BASE=$base"  | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Build (Windows)
         shell: pwsh
         run: |
-          $base = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md"
+          # ZIPFoundation pulls in zlib via the CZLib systemLibrary; the
+          # fork's per-platform `linkerSettings` doesn't reliably
+          # propagate `.linkedLibrary("zlib")` to the final executable
+          # link, so inject the absolute zlib.lib path resolved in the
+          # vcpkg step.
           swift build --build-tests -v `
-            -Xcc "-I$base\include" `
-            -Xlinker "/LIBPATH:$base\lib"
-        continue-on-error: true
+            -Xcc "-I$env:ZLIB_BASE\include" `
+            -Xlinker "$env:ZLIB_LIB"
       - name: Test (Windows)
         shell: pwsh
         run: |
-          $base = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md"
           swift test -v --skip-build --no-parallel `
-            -Xcc "-I$base\include" `
-            -Xlinker "/LIBPATH:$base\lib"
-        continue-on-error: true
+            -Xcc "-I$env:ZLIB_BASE\include" `
+            -Xlinker "$env:ZLIB_LIB"
 
-  # Uses skiptools/swift-android-action which wraps the swift.org Android
-  # SDK setup AND runs the SwiftPM tests on an x86_64 Android emulator.
-  # No `container:` here — the action provisions its own toolchain and
-  # the emulator setup needs nested KVM, which only works on the bare
-  # ubuntu-* runner image.
+  # Uses skiptools/swift-android-action to install the swift.org Android
+  # SDK + NDK + emulator stack. We then invoke `swift build` ourselves
+  # so we can pass `--target` once per library target — SwiftPM's
+  # `--target` flag is `Optional<String>` (last-wins), so a single
+  # `swift build --target A --target B …` call only builds the last
+  # entry.
   #
-  # Single action invocation: the action's emulator + test steps are
-  # gated on `build-package == build-tests == run-tests == 'true'`
-  # (see action.yml), so a split "build first / test second" pair makes
-  # the second call a no-op. Keep build + test in one step.
+  # Library-only build: the executable targets (`zip`, `unzip`, `gh`,
+  # `glab`, `git`) and XCTest test bundles still trip the action's
+  # standalone-Bionic-ELF link path with `undefined symbol: __libc_init`
+  # even after the libgit2 + ZIPFoundation Bionic fixes landed. The
+  # realistic Android consumer is SwiftBash embedding the libraries,
+  # so cover compile of every library target individually and skip
+  # the link/emulator phase. Re-enable the executable + test pass
+  # once skiptools/swift-android-action ships an
+  # executable-friendly link recipe.
   build-android:
     runs-on: ubuntu-latest
-    # First cold run = ~25 min (SDK + NDK + emulator boot dominates);
-    # cached subsequent runs are ~5 min. 30 min covers both with a
-    # comfortable margin.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
-      - name: Build & Test (Android emulator)
+      - name: Install Swift Android SDK
         uses: skiptools/swift-android-action@v2
         with:
           swift-version: "6.3"
-          # The default GitHub Linux runner has ~14 GiB free; the SDK,
-          # NDK, and emulator together push past that without cleanup.
           free-disk-space: true
+          build-package: false
+          build-tests: false
+          run-tests: false
+      - name: Build each library target (Android)
+        run: |
+          for target in ForgeKit ZipKit ZipCommand UnzipCommand \
+                        GitHub GhCommand GitLab GlabCommand \
+                        SwiftGit GitCommand; do
+            echo "::group::swift build --target $target"
+            swift build --swift-sdk "$SWIFT_SDK_TARGET" --target "$target"
+            echo "::endgroup::"
+          done

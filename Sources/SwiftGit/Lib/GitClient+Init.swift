@@ -28,10 +28,10 @@ extension GitClient {
         try check(git_repository_init_init_options(
             &opts, UInt32(GIT_REPOSITORY_INIT_OPTIONS_VERSION)))
 
-        var flags: UInt32 = GIT_REPOSITORY_INIT_MKDIR.rawValue
-            | GIT_REPOSITORY_INIT_MKPATH.rawValue
-        if bare { flags |= GIT_REPOSITORY_INIT_BARE.rawValue }
-        if !reinit { flags |= GIT_REPOSITORY_INIT_NO_REINIT.rawValue }
+        var flags: UInt32 = UInt32(GIT_REPOSITORY_INIT_MKDIR.rawValue)
+            | UInt32(GIT_REPOSITORY_INIT_MKPATH.rawValue)
+        if bare { flags |= UInt32(GIT_REPOSITORY_INIT_BARE.rawValue) }
+        if !reinit { flags |= UInt32(GIT_REPOSITORY_INIT_NO_REINIT.rawValue) }
         opts.flags = flags
 
         // libgit2 holds a non-owning pointer into `initial_head`; keep

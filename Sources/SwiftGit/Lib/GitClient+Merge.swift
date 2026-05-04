@@ -142,7 +142,7 @@ extension GitClient {
 
         var coOpts = git_checkout_options()
         try check(git_checkout_options_init(&coOpts, UInt32(GIT_CHECKOUT_OPTIONS_VERSION)))
-        coOpts.checkout_strategy = GIT_CHECKOUT_SAFE.rawValue
+        coOpts.checkout_strategy = UInt32(GIT_CHECKOUT_SAFE.rawValue)
         try check(git_checkout_tree(repo, newTree, &coOpts))
 
         // Update the current branch ref to point at the new commit. If
@@ -186,8 +186,8 @@ extension GitClient {
         try check(git_merge_options_init(&mergeOpts, UInt32(GIT_MERGE_OPTIONS_VERSION)))
         var coOpts = git_checkout_options()
         try check(git_checkout_options_init(&coOpts, UInt32(GIT_CHECKOUT_OPTIONS_VERSION)))
-        coOpts.checkout_strategy = GIT_CHECKOUT_SAFE.rawValue
-            | GIT_CHECKOUT_ALLOW_CONFLICTS.rawValue
+        coOpts.checkout_strategy = UInt32(GIT_CHECKOUT_SAFE.rawValue)
+            | UInt32(GIT_CHECKOUT_ALLOW_CONFLICTS.rawValue)
 
         var heads: [OpaquePointer?] = [theirAC]
         _ = try heads.withUnsafeMutableBufferPointer { buf in
