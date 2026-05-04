@@ -122,20 +122,38 @@ jobs:
             -Xlinker "/LIBPATH:$base\lib" `
             -Xlinker "zlib.lib"
 
-  # Uses skiptools/swift-android-action which wraps the swift.org
-  # Android SDK setup AND runs the SwiftPM tests on an x86_64 Android
-  # emulator. The full executable + test build relies on the
-  # libgit2 / ZIPFoundation forks gating their `linkedLibrary("z")`
-  # / `linkedLibrary("dl")` settings to non-Android (otherwise the
-  # action's CRT recipe drops `-lc` and every executable fails the
-  # link with `undefined symbol: __libc_init`).
+  # Uses skiptools/swift-android-action which wraps the swift.org Android
+  # SDK setup. No `container:` here — the action provisions its own
+  # toolchain.
+  #
+  # Library-only build: the executable targets (`zip`, `unzip`, `gh`,
+  # `glab`, `git`) link as standalone Bionic ELFs and trip the action's
+  # CRT setup (`undefined symbol: __libc_init`). The XCTest test runner
+  # is also an executable, so the test build is off too. The realistic
+  # Android consumer is SwiftBash embedding the *libraries* — restrict
+  # the build to library targets via `--target` flags and skip the
+  # emulator test phase. Revisit once skiptools/swift-android-action
+  # ships an executable-friendly link recipe.
   build-android:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
-      - name: Build & Test (Android emulator)
+      - name: Build (Android — library targets only)
         uses: skiptools/swift-android-action@v2
         with:
           swift-version: "6.3"
           free-disk-space: true
+          build-tests: false
+          run-tests: false
+          swift-build-flags: >-
+            --target ForgeKit
+            --target ZipKit
+            --target ZipCommand
+            --target UnzipCommand
+            --target GitHub
+            --target GhCommand
+            --target GitLab
+            --target GlabCommand
+            --target SwiftGit
+            --target GitCommand
