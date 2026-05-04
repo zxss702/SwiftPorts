@@ -71,8 +71,11 @@ let package = Package(
         // Community
         .package(url: "https://github.com/jpsim/Yams",
                  from: "6.0.0"),
-        .package(url: "https://github.com/weichsel/ZIPFoundation",
-                 from: "0.9.19"),
+        // Pinned to a fork while https://github.com/weichsel/ZIPFoundation/pull/<TBD>
+        // is open — adds explicit `import Bionic` so the package compiles on
+        // Android. Roll back to upstream once the PR lands.
+        .package(url: "https://github.com/odrobnik/ZIPFoundation",
+                 branch: "fix/android-windows-imports"),
 
         // libgit2 1.9.x packaged as a SwiftPM C target — fork of upstream
         // with a Package.swift that compiles libgit2 from source. We
