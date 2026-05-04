@@ -5,6 +5,7 @@ import Foundation
 /// `clip`/`Get-Clipboard` on Windows. Same minimal-dep approach as
 /// ``Browser`` — no AppKit / UIKit needed.
 public enum Clipboard {
+    #if os(macOS) || os(Linux) || os(Windows)
     public static func write(_ string: String) async throws {
         #if os(macOS)
         try await pipe(to: "/usr/bin/pbcopy", input: string)
@@ -22,8 +23,6 @@ public enum Clipboard {
         }
         #elseif os(Windows)
         try await pipe(to: "C:\\Windows\\System32\\clip.exe", input: string)
-        #else
-        throw ClipboardError.unsupportedPlatform
         #endif
     }
 
@@ -58,6 +57,13 @@ public enum Clipboard {
             }
         }
     }
+    #else
+    // iOS / tvOS / watchOS: Process is unavailable. Stub stays for
+    // compile-compat but always fails.
+    public static func write(_ string: String) async throws {
+        throw ClipboardError.unsupportedPlatform
+    }
+    #endif
 }
 
 public enum ClipboardError: Error, LocalizedError, Sendable {

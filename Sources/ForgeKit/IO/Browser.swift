@@ -14,6 +14,7 @@ public enum Browser {
         try await launch(url: url)
     }
 
+    #if os(macOS) || os(Linux) || os(Windows)
     private static func launch(url: URL) async throws {
         let arg = url.absoluteString
         #if os(macOS)
@@ -37,8 +38,6 @@ public enum Browser {
         try await runProcess(
             executable: "C:\\Windows\\System32\\cmd.exe",
             args: ["/c", "start", "", arg])
-        #else
-        throw BrowserError.unsupportedPlatform
         #endif
     }
 
@@ -69,6 +68,13 @@ public enum Browser {
             }
         }
     }
+    #else
+    // iOS / tvOS / watchOS: Process is unavailable. Browser.open exists
+    // for compile-compat but always fails.
+    private static func launch(url: URL) async throws {
+        throw BrowserError.unsupportedPlatform
+    }
+    #endif
 }
 
 public enum BrowserError: Error, LocalizedError, Sendable {
