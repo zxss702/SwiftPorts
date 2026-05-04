@@ -111,9 +111,17 @@ extension GitClient {
             // Commit the resolved conflict from the previous step before
             // resuming the loop. Skip when the index is empty (e.g. user
             // ran `--continue` after `--skip` shifted past everything).
-            let total = Int(git_rebase_operation_entrycount(rebase))
-            let current = Int(git_rebase_operation_current(rebase))
-            if current != Int(GIT_REBASE_NO_OPERATION) && current < total {
+            // Compare in `size_t` space and short-circuit on the
+            // "no current operation" sentinel before narrowing to `Int`:
+            // libgit2 returns `SIZE_MAX` (== `size_t.max`) here, which
+            // overflows a signed `Int`. The Swift importer also drops
+            // the `GIT_REBASE_NO_OPERATION` macro on the Android SDK
+            // (`#define … SIZE_MAX` evaluates platform-dependently),
+            // so we use `size_t.max` directly instead.
+            let totalRaw = git_rebase_operation_entrycount(rebase)
+            let currentRaw = git_rebase_operation_current(rebase)
+            let total = Int(totalRaw)
+            if currentRaw != size_t.max && currentRaw < totalRaw {
                 try commitCurrent(rebase: rebase, repo: repo, author: author)
             }
 
