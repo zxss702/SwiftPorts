@@ -116,7 +116,12 @@ struct GitClientStatusTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let ours = try await SwiftGit.GitClient(workingDirectory: dir)
             .status().verboseFormat()
-        let theirs = try runGit(["status"], in: dir)
+        // Force the system git to print the `(use "git restore …")`
+        // hint lines we emit. CI runners with newer git (or with
+        // `advice.statusHints` disabled in /etc/gitconfig) suppress
+        // them by default, which would diverge from our output.
+        let theirs = try runGit(
+            ["-c", "advice.statusHints=true", "status"], in: dir)
         #expect(ours == theirs)
     }
 

@@ -90,8 +90,13 @@ private let combinedSidebandTrampoline: git_transport_message_cb = {
     guard box.reporter != nil,
           !(box.reporter!.suppressTransferProgress) else { return 0 }
     var copy = [UInt8](repeating: 0, count: Int(len))
-    _ = copy.withUnsafeMutableBufferPointer { buf in
-        memcpy(buf.baseAddress, strPtr, Int(len))
+    copy.withUnsafeMutableBufferPointer { buf in
+        // Linux/Glibc imports memcpy with non-optional pointers, so
+        // `buf.baseAddress` (Optional) and `strPtr` (Optional) need
+        // explicit unwrapping. Apple's libc imports them as Optional.
+        if let dest = buf.baseAddress {
+            _ = memcpy(dest, strPtr, Int(len))
+        }
     }
     let chunk = String(decoding: copy, as: UTF8.self)
 
