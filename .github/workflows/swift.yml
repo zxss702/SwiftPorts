@@ -77,13 +77,11 @@ jobs:
         run: swift test -v --skip-build --no-parallel
 
   build-windows:
-    # Library-only build on Windows. The libgit2 SwiftPM dependency
-    # (`ibrahimcetin/libgit2`) doesn't ship Win32 source configuration —
-    # `src/util/win32` is excluded for every platform in its
-    # Package.swift, so SwiftGit / GitCommand / GhCommand / GlabCommand
-    # and their `git`/`gh`/`glab` executables can't compile here. Build
-    # only the targets that don't transitively pull in libgit2; track
-    # full Windows support behind a separate libgit2-on-Windows fork.
+    # Full Windows build. We depend on a fork of ibrahimcetin/libgit2
+    # that adds an `#elseif os(Windows)` arm to Package.swift wiring up
+    # `src/util/win32/*`, BCrypt SHA, and WinHTTP HTTPS — so the whole
+    # SwiftGit / GitCommand / GhCommand / GlabCommand / `git` / `gh` /
+    # `glab` chain compiles here too.
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -101,17 +99,11 @@ jobs:
         shell: pwsh
         run: |
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install zlib --triplet x64-windows-static-md
-      - name: Build (Windows — non-libgit2 targets)
+      - name: Build (Windows)
         shell: pwsh
         run: |
           $base = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md"
-          swift build -v `
-            --target ForgeKit `
-            --target ZipKit `
-            --target ZipCommand `
-            --target UnzipCommand `
-            --target GitHub `
-            --target GitLab `
+          swift build --build-tests -v `
             -Xcc "-I$base\include" `
             -Xlinker "/LIBPATH:$base\lib"
 
