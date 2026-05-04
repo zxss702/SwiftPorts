@@ -123,22 +123,37 @@ jobs:
             -Xlinker "zlib.lib"
 
   # Uses skiptools/swift-android-action which wraps the swift.org Android
-  # SDK setup AND runs the SwiftPM tests on an x86_64 Android emulator.
-  # No `container:` here — the action provisions its own toolchain and
-  # the emulator setup needs nested KVM, which only works on the bare
-  # ubuntu-* runner image.
+  # SDK setup. No `container:` here — the action provisions its own
+  # toolchain.
+  #
+  # Library-only build: the executable targets (`zip`, `unzip`, `gh`,
+  # `glab`, `git`) link as standalone Bionic ELFs and trip the action's
+  # CRT setup (`undefined symbol: __libc_init`). The XCTest test runner
+  # is also an executable, so the test build is off too. The realistic
+  # Android consumer is SwiftBash embedding the *libraries* — restrict
+  # the build to library targets via `--target` flags and skip the
+  # emulator test phase. Revisit once skiptools/swift-android-action
+  # ships an executable-friendly link recipe.
   build-android:
     runs-on: ubuntu-latest
-    # First cold run = ~25 min (SDK + NDK + emulator boot dominates);
-    # cached subsequent runs are ~5 min. 30 min covers both with a
-    # comfortable margin.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
-      - name: Build & Test (Android emulator)
+      - name: Build (Android — library targets only)
         uses: skiptools/swift-android-action@v2
         with:
           swift-version: "6.3"
-          # SDK + NDK + emulator pushes past the default runner's
-          # ~14 GiB free. Free up disk first.
           free-disk-space: true
+          build-tests: false
+          run-tests: false
+          swift-build-flags: >-
+            --target ForgeKit
+            --target ZipKit
+            --target ZipCommand
+            --target UnzipCommand
+            --target GitHub
+            --target GhCommand
+            --target GitLab
+            --target GlabCommand
+            --target SwiftGit
+            --target GitCommand
