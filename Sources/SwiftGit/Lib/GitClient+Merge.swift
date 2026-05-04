@@ -187,7 +187,7 @@ extension GitClient {
         var coOpts = git_checkout_options()
         try check(git_checkout_options_init(&coOpts, UInt32(GIT_CHECKOUT_OPTIONS_VERSION)))
         coOpts.checkout_strategy = UInt32(GIT_CHECKOUT_SAFE.rawValue)
-            | GIT_CHECKOUT_ALLOW_CONFLICTS.rawValue
+            | UInt32(GIT_CHECKOUT_ALLOW_CONFLICTS.rawValue)
 
         var heads: [OpaquePointer?] = [theirAC]
         _ = try heads.withUnsafeMutableBufferPointer { buf in
