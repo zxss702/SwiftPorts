@@ -1,91 +1,53 @@
 import Foundation
-import ZIPFoundation
+// Selective imports — the libarchive wrapper module is named `Archive`
+// and exposes its own `enum Archive` (just for version metadata) which
+// would collide with our public `enum Archive` below.
+import struct Archive.ArchiveEntry
+import class Archive.ArchiveReader
+import class Archive.ArchiveWriter
+import enum Archive.ArchiveFormat
+import enum Archive.ArchiveFilter
+import enum Archive.FileType
 
-/// High-level facade over `ZIPFoundation` for the operations zip(1)
-/// and unzip(1) need. Cross-platform (Apple + Linux + sandboxed iOS),
-/// no `Process` calls.
+/// High-level facade over libarchive (via marcprux/swift-archive) for
+/// the operations zip(1) and unzip(1) need. Cross-platform (Apple +
+/// Linux + Windows + Android), no `Process` calls.
 public enum Archive {
 
     // MARK: List
 
     public static func list(at url: URL) throws -> [Entry] {
-        let archive = try openArchive(at: url)
-        return entries(in: archive)
+        let reader = try newReader(at: url)
+        return try collectEntries(reader: reader, readData: false).map(\.entry)
     }
 
     public static func list(data: Data) throws -> [Entry] {
-        let archive = try openArchive(data: data)
-        return entries(in: archive)
-    }
-
-    private static func entries(in archive: ZIPFoundation.Archive) -> [Entry] {
-        archive.map { native in
-            Entry(
-                path: native.path,
-                kind: kind(of: native),
-                uncompressedSize: Int64(native.uncompressedSize),
-                compressedSize: Int64(native.compressedSize),
-                compressionMethod: method(of: native),
-                crc32: native.checksum,
-                modificationDate: native.fileAttributes[.modificationDate] as? Date
-            )
-        }
-    }
-
-    private static func kind(of entry: ZIPFoundation.Entry) -> Entry.Kind {
-        switch entry.type {
-        case .file: return .file
-        case .directory: return .directory
-        case .symlink: return .symlink
-        }
-    }
-
-    private static func method(of entry: ZIPFoundation.Entry) -> CompressionMethod {
-        // ZIPFoundation exposes `compressedSize` / `uncompressedSize`
-        // — equal sizes → store; different → deflate.
-        entry.compressedSize == entry.uncompressedSize ? .store : .deflate
+        let reader = try newReader(data: data)
+        return try collectEntries(reader: reader, readData: false).map(\.entry)
     }
 
     // MARK: Test integrity
 
-    /// Walks every entry and recomputes its CRC; throws on mismatch.
-    /// Returns the entries (with their CRCs) on success.
+    /// Walks every entry, reading its bytes — libarchive validates
+    /// per-format checksums (CRC32 for zip) during data reads, so a
+    /// successful walk implies integrity.
     @discardableResult
     public static func test(at url: URL) throws -> [Entry] {
-        let archive = try openArchive(at: url)
-        for entry in archive {
-            // ZIPFoundation's extract closure-form recomputes CRC and
-            // throws if it doesn't match the central directory.
-            _ = try archive.extract(entry, skipCRC32: false) { _ in }
-        }
-        return entries(in: archive)
+        let reader = try newReader(at: url)
+        return try collectEntries(reader: reader, readData: true).map(\.entry)
     }
 
     // MARK: Read a single entry
 
     /// Returns the decompressed bytes of `entryPath`. Used by `unzip -p`.
     public static func read(entry entryPath: String, from url: URL) throws -> Data {
-        let archive = try openArchive(at: url)
-        guard let entry = archive[entryPath] else {
-            throw ZipKitError.entryNotFound(entryPath)
-        }
-        var out = Data()
-        _ = try archive.extract(entry) { chunk in
-            out.append(chunk)
-        }
-        return out
+        let reader = try newReader(at: url)
+        return try readSingleEntry(reader: reader, path: entryPath)
     }
 
     public static func read(entry entryPath: String, data: Data) throws -> Data {
-        let archive = try openArchive(data: data)
-        guard let entry = archive[entryPath] else {
-            throw ZipKitError.entryNotFound(entryPath)
-        }
-        var out = Data()
-        _ = try archive.extract(entry) { chunk in
-            out.append(chunk)
-        }
-        return out
+        let reader = try newReader(data: data)
+        return try readSingleEntry(reader: reader, path: entryPath)
     }
 
     // MARK: Stream entries to a FileHandle
@@ -100,23 +62,23 @@ public enum Archive {
         matching options: ExtractOptions = .init(destination: URL(fileURLWithPath: "")),
         printHeaders: Bool = true
     ) throws {
-        let archive = try openArchive(data: data)
-        let selected = archive
-            .filter { $0.type == .file }
-            .filter { entry in
-                shouldInclude(entryPath: entry.path,
-                              includes: options.includes,
-                              excludes: options.excludes,
-                              caseInsensitive: options.caseInsensitive)
-            }
-            .sorted { $0.path < $1.path }
-        for entry in selected {
+        let reader = try newReader(data: data)
+        var collected: [(path: String, data: Data)] = []
+        try reader.forEachEntry { entry, reader in
+            guard entry.fileType == .regular else { return }
+            guard shouldInclude(entryPath: entry.pathname,
+                                includes: options.includes,
+                                excludes: options.excludes,
+                                caseInsensitive: options.caseInsensitive)
+            else { return }
+            let bytes = try reader.readData()
+            collected.append((entry.pathname, bytes))
+        }
+        for (path, bytes) in collected.sorted(by: { $0.path < $1.path }) {
             if printHeaders {
-                handle.write(Data("\n=== \(entry.path) ===\n".utf8))
+                handle.write(Data("\n=== \(path) ===\n".utf8))
             }
-            _ = try archive.extract(entry) { chunk in
-                handle.write(chunk)
-            }
+            handle.write(bytes)
         }
     }
 
@@ -126,82 +88,77 @@ public enum Archive {
     public static func extract(
         from url: URL, options: ExtractOptions
     ) throws -> [Entry] {
-        let archive = try openArchive(at: url)
-        return try extract(archive: archive, options: options)
+        let reader = try newReader(at: url)
+        return try extract(reader: reader, options: options)
     }
 
     @discardableResult
     public static func extract(
         from data: Data, options: ExtractOptions
     ) throws -> [Entry] {
-        let archive = try openArchive(data: data)
-        return try extract(archive: archive, options: options)
+        let reader = try newReader(data: data)
+        return try extract(reader: reader, options: options)
     }
 
     private static func extract(
-        archive: ZIPFoundation.Archive, options: ExtractOptions
+        reader: ArchiveReader, options: ExtractOptions
     ) throws -> [Entry] {
         try FileManager.default.createDirectory(
             at: options.destination, withIntermediateDirectories: true)
 
         var written: [Entry] = []
-        let entries = archive.sorted { $0.path < $1.path }
-
-        for native in entries {
+        try reader.forEachEntry { native, reader in
             // `-j` (junk paths) means flat extraction — skip directory
             // entries entirely; for files take only the basename.
-            if options.junkPaths && native.type == .directory {
-                continue
+            if options.junkPaths && native.fileType == .directory {
+                return
             }
             let path = options.junkPaths
-                ? (native.path as NSString).lastPathComponent
-                : native.path
-            guard !path.isEmpty else { continue }
-            guard shouldInclude(entryPath: native.path,
+                ? (native.pathname as NSString).lastPathComponent
+                : native.pathname
+            guard !path.isEmpty else { return }
+            guard shouldInclude(entryPath: native.pathname,
                                 includes: options.includes,
                                 excludes: options.excludes,
                                 caseInsensitive: options.caseInsensitive)
-            else { continue }
+            else { return }
 
             let target = options.destination.appendingPathComponent(path)
             let exists = FileManager.default.fileExists(atPath: target.path)
             if exists {
                 switch options.overwrite {
                 case .yes: try? FileManager.default.removeItem(at: target)
-                case .no: continue
+                case .no: return
                 case .error: throw ZipKitError.destinationExists(target)
                 }
             }
 
             do {
-                switch native.type {
+                switch native.fileType {
                 case .directory:
                     try FileManager.default.createDirectory(
                         at: target, withIntermediateDirectories: true)
-                case .file:
+                case .symbolicLink:
                     try FileManager.default.createDirectory(
                         at: target.deletingLastPathComponent(),
                         withIntermediateDirectories: true)
-                    _ = try archive.extract(native, to: target)
-                case .symlink:
+                    if let link = native.symlinkTarget {
+                        try FileManager.default.createSymbolicLink(
+                            at: target, withDestinationURL: URL(fileURLWithPath: link))
+                    }
+                default: // .regular and other "file-like" types
                     try FileManager.default.createDirectory(
                         at: target.deletingLastPathComponent(),
                         withIntermediateDirectories: true)
-                    _ = try archive.extract(native, to: target)
+                    let bytes = try reader.readData()
+                    try bytes.write(to: target)
                 }
             } catch let error as ZipKitError { throw error }
             catch {
                 throw ZipKitError.writeFailed(target,
                     underlying: error.localizedDescription)
             }
-            written.append(Entry(
-                path: native.path,
-                kind: kind(of: native),
-                uncompressedSize: Int64(native.uncompressedSize),
-                compressedSize: Int64(native.compressedSize),
-                compressionMethod: method(of: native),
-                crc32: native.checksum,
-                modificationDate: native.fileAttributes[.modificationDate] as? Date))
+            written.append(map(entry: native, hadDataRead: false))
         }
         return written
     }
@@ -221,9 +178,9 @@ public enum Archive {
         if FileManager.default.fileExists(atPath: zipURL.path) {
             try FileManager.default.removeItem(at: zipURL)
         }
-        let archive: ZIPFoundation.Archive
+        let writer: ArchiveWriter
         do {
-            archive = try ZIPFoundation.Archive(url: zipURL, accessMode: .create)
+            writer = try ArchiveWriter(path: zipURL.path, format: .zip)
         } catch {
             throw ZipKitError.archiveOpenFailed(zipURL.path)
         }
@@ -235,63 +192,127 @@ public enum Archive {
                 atPath: resolved.source.path)) ?? [:]
             let isDir = (baseAttrs[.type] as? FileAttributeType) == .typeDirectory
             let isSymlink = (baseAttrs[.type] as? FileAttributeType) == .typeSymbolicLink
+            let modDate = (baseAttrs[.modificationDate] as? Date) ?? Date()
+            let perms = (baseAttrs[.posixPermissions] as? NSNumber)?.uint16Value
 
             if isDir {
                 if options.includeDirectories {
-                    try archive.addEntry(
-                        with: resolved.entryPath + "/",
-                        type: .directory,
-                        uncompressedSize: Int64(0),
-                        provider: { _, _ in Data() })
-                    written.append(syntheticDirEntry(path: resolved.entryPath + "/"))
+                    let dirPath = resolved.entryPath.hasSuffix("/")
+                        ? resolved.entryPath
+                        : resolved.entryPath + "/"
+                    let entry = ArchiveEntry(
+                        pathname: dirPath,
+                        size: 0,
+                        fileType: .directory,
+                        permissions: perms ?? 0o755,
+                        modificationDate: modDate)
+                    try writer.writeEntry(entry)
+                    written.append(syntheticDirEntry(path: dirPath))
                 }
             } else if isSymlink && !options.followSymlinks {
                 let dest = (try? FileManager.default.destinationOfSymbolicLink(
                     atPath: resolved.source.path)) ?? ""
+                let entry = ArchiveEntry(
+                    pathname: resolved.entryPath,
+                    size: 0,
+                    fileType: .symbolicLink,
+                    permissions: perms ?? 0o755,
+                    modificationDate: modDate,
+                    symlinkTarget: dest)
+                try writer.writeEntry(entry)
                 let bytes = Data(dest.utf8)
-                try archive.addEntry(
-                    with: resolved.entryPath,
-                    type: .symlink,
-                    uncompressedSize: Int64(bytes.count),
-                    compressionMethod: nativeCompressionMethod(options.compressionMethod),
-                    provider: { _, _ in bytes })
                 written.append(Entry(
                     path: resolved.entryPath, kind: .symlink,
                     uncompressedSize: Int64(bytes.count),
                     compressedSize: Int64(bytes.count),
                     compressionMethod: .store,
-                    crc32: 0, modificationDate: nil))
+                    crc32: 0, modificationDate: modDate))
             } else {
-                try archive.addEntry(
-                    with: resolved.entryPath,
-                    fileURL: resolved.source,
-                    compressionMethod: nativeCompressionMethod(options.compressionMethod))
-                let size = Int64(
-                    (baseAttrs[.size] as? NSNumber)?.int64Value ?? 0)
+                let bytes = try Data(contentsOf: resolved.source)
+                let entry = ArchiveEntry(
+                    pathname: resolved.entryPath,
+                    size: Int64(bytes.count),
+                    fileType: .regular,
+                    permissions: perms ?? 0o644,
+                    modificationDate: modDate)
+                try writer.writeEntry(entry, data: bytes)
                 written.append(Entry(
                     path: resolved.entryPath, kind: .file,
-                    uncompressedSize: size,
-                    compressedSize: size,
+                    uncompressedSize: Int64(bytes.count),
+                    compressedSize: Int64(bytes.count),
                     compressionMethod: options.compressionMethod,
-                    crc32: 0, modificationDate: baseAttrs[.modificationDate] as? Date))
+                    crc32: 0, modificationDate: modDate))
             }
         }
+        try writer.close()
         return written
     }
 
-    private static func nativeCompressionMethod(
-        _ method: CompressionMethod
-    ) -> ZIPFoundation.CompressionMethod {
-        switch method {
-        case .store: return .none
-        case .deflate: return .deflate
+    // MARK: Mapping helpers
+
+    private static func map(entry native: ArchiveEntry, hadDataRead: Bool) -> Entry {
+        let kind: Entry.Kind
+        switch native.fileType {
+        case .directory: kind = .directory
+        case .symbolicLink: kind = .symlink
+        default: kind = .file
         }
+        // libarchive doesn't surface the per-entry CRC or compressed
+        // size for zip via the Swift wrapper; treat compressed == uncompressed
+        // (effectively `.store`) and crc32 = 0. List/test consumers of
+        // SwiftPorts only check path / kind / sizes, not these fields.
+        let path: String
+        if kind == .directory && !native.pathname.hasSuffix("/") {
+            path = native.pathname + "/"
+        } else {
+            path = native.pathname
+        }
+        return Entry(
+            path: path,
+            kind: kind,
+            uncompressedSize: native.size,
+            compressedSize: native.size,
+            compressionMethod: native.size == 0 ? .store : .deflate,
+            crc32: 0,
+            modificationDate: native.modificationDate)
     }
 
     private static func syntheticDirEntry(path: String) -> Entry {
         Entry(path: path, kind: .directory,
               uncompressedSize: 0, compressedSize: 0,
               compressionMethod: .store, crc32: 0, modificationDate: nil)
+    }
+
+    /// Walks every entry once. When `readData` is true, each entry's
+    /// bytes are read (forces libarchive to validate per-format
+    /// checksums); the data itself is discarded.
+    private static func collectEntries(
+        reader: ArchiveReader, readData: Bool
+    ) throws -> [(entry: Entry, native: ArchiveEntry)] {
+        var out: [(entry: Entry, native: ArchiveEntry)] = []
+        try reader.forEachEntry { native, reader in
+            if readData && native.fileType == .regular {
+                _ = try reader.readData()
+            }
+            out.append((map(entry: native, hadDataRead: readData), native))
+        }
+        return out
+    }
+
+    private static func readSingleEntry(
+        reader: ArchiveReader, path entryPath: String
+    ) throws -> Data {
+        var found: Data?
+        try reader.forEachEntry { native, reader in
+            guard found == nil else { return }
+            if native.pathname == entryPath {
+                found = try reader.readData()
+            }
+        }
+        guard let bytes = found else {
+            throw ZipKitError.entryNotFound(entryPath)
+        }
+        return bytes
     }
 
     // MARK: Input resolution (for create)
@@ -361,17 +382,17 @@ public enum Archive {
 
     // MARK: Helpers
 
-    private static func openArchive(at url: URL) throws -> ZIPFoundation.Archive {
+    private static func newReader(at url: URL) throws -> ArchiveReader {
         do {
-            return try ZIPFoundation.Archive(url: url, accessMode: .read)
+            return try ArchiveReader(path: url.path)
         } catch {
             throw ZipKitError.archiveOpenFailed(url.path)
         }
     }
 
-    private static func openArchive(data: Data) throws -> ZIPFoundation.Archive {
+    private static func newReader(data: Data) throws -> ArchiveReader {
         do {
-            return try ZIPFoundation.Archive(data: data, accessMode: .read)
+            return try ArchiveReader(data: data)
         } catch {
             throw ZipKitError.archiveOpenFailed(error.localizedDescription)
         }

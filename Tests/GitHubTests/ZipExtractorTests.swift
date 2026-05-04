@@ -1,28 +1,40 @@
-// Windows: ZIPFoundation's MemoryFile fallback uses `tmpfile()` (no
-// `funopen`/`fopencookie` available there), so writes go to disk and
-// the `Archive.data` getter never sees them. In-memory archive tests
-// can't run until we wire up a CreateFileMapping-backed FILE stream;
-// gate the suite to non-Windows for now.
-#if !os(Windows)
 import Foundation
 import Testing
-import ZIPFoundation
+import ZipKit
 @testable import GitHub
 
 @Suite struct ZipExtractorTests {
-    /// Build a small ZIP in memory, then round-trip via
-    /// `ZipExtractor.extract`. Doesn't touch Process or any external
-    /// binary — proves the in-process path works end-to-end on the
-    /// host platform.
+    /// Build a small ZIP in memory via ZipKit (libarchive-backed),
+    /// then round-trip via `ZipExtractor.extract`. Doesn't touch
+    /// `Process` or any external binary — proves the in-process path
+    /// works end-to-end on the host platform.
     @Test func extractsInMemoryArchive() async throws {
-        let archive = try Archive(accessMode: .create)
-        try addEntry(to: archive, path: "0_first.txt",
-                     content: "hello from job 0\n")
-        try addEntry(to: archive, path: "1_second.txt",
-                     content: "hello from job 1\n")
-        try addEntry(to: archive, path: "subdir/nested.txt",
-                     content: "nested\n")
-        let zipData = try #require(archive.data)
+        let workDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("swiftgh-zip-build-\(UUID().uuidString)",
+                                    isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: workDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workDir) }
+
+        // Lay out a tiny tree on disk and let ZipKit build a real
+        // PKZIP archive — same code path the `zip` CLI exercises.
+        let src = workDir.appendingPathComponent("src", isDirectory: true)
+        let nested = src.appendingPathComponent("subdir", isDirectory: true)
+        try FileManager.default.createDirectory(at: nested,
+                                                withIntermediateDirectories: true)
+        try Data("hello from job 0\n".utf8).write(
+            to: src.appendingPathComponent("0_first.txt"))
+        try Data("hello from job 1\n".utf8).write(
+            to: src.appendingPathComponent("1_second.txt"))
+        try Data("nested\n".utf8).write(
+            to: nested.appendingPathComponent("nested.txt"))
+
+        let archiveURL = workDir.appendingPathComponent("in-memory.zip")
+        try Archive.create(
+            at: archiveURL,
+            paths: [src],
+            options: CreateOptions(recursive: true))
+        let zipData = try Data(contentsOf: archiveURL)
 
         let dest = FileManager.default.temporaryDirectory
             .appendingPathComponent("swiftgh-zip-test-\(UUID().uuidString)",
@@ -32,30 +44,12 @@ import ZIPFoundation
         try await ZipExtractor.extract(zipData: zipData, into: dest)
 
         #expect(FileManager.default.fileExists(
-            atPath: dest.appendingPathComponent("0_first.txt").path))
+            atPath: dest.appendingPathComponent("src/0_first.txt").path))
         #expect(FileManager.default.fileExists(
-            atPath: dest.appendingPathComponent("subdir/nested.txt").path))
+            atPath: dest.appendingPathComponent("src/subdir/nested.txt").path))
         let first = try String(
-            contentsOf: dest.appendingPathComponent("0_first.txt"),
+            contentsOf: dest.appendingPathComponent("src/0_first.txt"),
             encoding: .utf8)
         #expect(first == "hello from job 0\n")
     }
-
-    private func addEntry(
-        to archive: Archive, path: String, content: String
-    ) throws {
-        let bytes = Data(content.utf8)
-        try archive.addEntry(
-            with: path,
-            type: .file,
-            uncompressedSize: Int64(bytes.count),
-            compressionMethod: .deflate,
-            provider: { position, size in
-                let start = Int(position)
-                let end = min(start + size, bytes.count)
-                return bytes.subdata(in: start..<end)
-            })
-    }
 }
-
-#endif

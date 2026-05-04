@@ -71,11 +71,15 @@ let package = Package(
         // Community
         .package(url: "https://github.com/jpsim/Yams",
                  from: "6.0.0"),
-        // Pinned to a fork while https://github.com/weichsel/ZIPFoundation/pull/<TBD>
-        // is open — adds explicit `import Bionic` so the package compiles on
-        // Android. Roll back to upstream once the PR lands.
-        .package(url: "https://github.com/odrobnik/ZIPFoundation",
-                 branch: "fix/android-windows-imports"),
+        // libarchive-backed multi-format archive library (tar, zip, 7z,
+        // cpio, xar, ISO9660, …) with gzip/bzip2/xz/zstd filters. The
+        // Swift wrapper lives in `contrib/Swift` of the upstream
+        // libarchive fork. We enable GzipSupport so zip's `deflate`
+        // method works (zlib link); the other compression filters stay
+        // off by default — turn them on per-platform if/when needed.
+        .package(url: "https://github.com/marcprux/swift-archive",
+                 branch: "master",
+                 traits: [.defaults, "GzipSupport"]),
 
         // libgit2 1.9.x packaged as a SwiftPM C target. We pin to our
         // own fork while https://github.com/ibrahimcetin/libgit2/pull/<TBD>
@@ -96,7 +100,7 @@ let package = Package(
         .target(
             name: "ZipKit",
             dependencies: [
-                .product(name: "ZIPFoundation", package: "ZIPFoundation"),
+                .product(name: "Archive", package: "swift-archive"),
             ],
             path: "Sources/ZipKit/Lib"
         ),
