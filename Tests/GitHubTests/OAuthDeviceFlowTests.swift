@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking  // HTTPURLResponse is in this module on Linux
+#endif
 import HTTPTypes
 import Synchronization
 import Testing
