@@ -95,29 +95,40 @@ jobs:
         # vcpkg is preinstalled on windows-latest at C:\vcpkg.
         # x64-windows-static-md gives us a `zlib.lib` linked against
         # the dynamic UCRT, which matches Swift's default link mode.
+        # Persist the resolved zlib.lib path for the build / test
+        # steps — vcpkg's exact output filename varies between runs
+        # (sometimes `zlib.lib`, occasionally hidden under a sibling
+        # debug/ subfolder), and SwiftPM's lld-link won't search by
+        # bare name reliably.
         shell: pwsh
         run: |
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install zlib --triplet x64-windows-static-md
+          $base = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md"
+          $zlib = Get-ChildItem -Path "$base\lib" -Filter "zlib*.lib" -File | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $zlib) {
+            Write-Error "could not find zlib.lib under $base\lib"
+            Get-ChildItem -Recurse "$base" | Select-Object FullName
+            exit 1
+          }
+          "ZLIB_LIB=$zlib"   | Out-File -FilePath $env:GITHUB_ENV -Append
+          "ZLIB_BASE=$base"  | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Build (Windows)
         shell: pwsh
         run: |
-          $base = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md"
           # ZIPFoundation pulls in zlib via the CZLib systemLibrary; the
           # fork's per-platform `linkerSettings` doesn't reliably
           # propagate `.linkedLibrary("zlib")` to the final executable
-          # link, so inject the absolute path to `zlib.lib` here. Bare
-          # `zlib.lib` (relying on /LIBPATH) is flaky — lld-link
-          # sometimes treats it as a cwd-relative path and fails.
+          # link, so inject the absolute zlib.lib path resolved in the
+          # vcpkg step.
           swift build --build-tests -v `
-            -Xcc "-I$base\include" `
-            -Xlinker "$base\lib\zlib.lib"
+            -Xcc "-I$env:ZLIB_BASE\include" `
+            -Xlinker "$env:ZLIB_LIB"
       - name: Test (Windows)
         shell: pwsh
         run: |
-          $base = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md"
           swift test -v --skip-build --no-parallel `
-            -Xcc "-I$base\include" `
-            -Xlinker "$base\lib\zlib.lib"
+            -Xcc "-I$env:ZLIB_BASE\include" `
+            -Xlinker "$env:ZLIB_LIB"
 
   # Uses skiptools/swift-android-action which wraps the swift.org Android
   # SDK setup. No `container:` here — the action provisions its own
