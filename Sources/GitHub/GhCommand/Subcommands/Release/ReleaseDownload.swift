@@ -1,5 +1,8 @@
 import ArgumentParser
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking  // URLSession lives in a separate module on Linux
+#endif
 import GitHub
 
 struct ReleaseDownload: AsyncParsableCommand {
