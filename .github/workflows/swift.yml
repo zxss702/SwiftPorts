@@ -130,23 +130,41 @@ jobs:
             -Xcc "-I$env:ZLIB_BASE\include" `
             -Xlinker "$env:ZLIB_LIB"
 
-  # Uses skiptools/swift-android-action which wraps the swift.org Android
-  # SDK setup. No `container:` here — the action provisions its own
-  # toolchain.
+  # Uses skiptools/swift-android-action to install the swift.org Android
+  # SDK + NDK + emulator stack. We then invoke `swift build` ourselves
+  # so we can pass `--target` once per library target — SwiftPM's
+  # `--target` flag is `Optional<String>` (last-wins), so a single
+  # `swift build --target A --target B …` call only builds the last
+  # entry.
   #
-  # Full build + test: the libgit2 fork
-  # (`odrobnik/libgit2#windows-android-platforms`) and the ZIPFoundation
-  # fork (`odrobnik/ZIPFoundation#fix/android-windows-imports`) now ship
-  # the Bionic-side fixes that previously broke the executable link
-  # path, so let the action run its default `swift build --build-tests`
-  # + emulator-test pass against the whole package.
+  # Library-only build: the executable targets (`zip`, `unzip`, `gh`,
+  # `glab`, `git`) and XCTest test bundles still trip the action's
+  # standalone-Bionic-ELF link path with `undefined symbol: __libc_init`
+  # even after the libgit2 + ZIPFoundation Bionic fixes landed. The
+  # realistic Android consumer is SwiftBash embedding the libraries,
+  # so cover compile of every library target individually and skip
+  # the link/emulator phase. Re-enable the executable + test pass
+  # once skiptools/swift-android-action ships an
+  # executable-friendly link recipe.
   build-android:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
-      - name: Build & Test (Android emulator)
+      - name: Install Swift Android SDK
         uses: skiptools/swift-android-action@v2
         with:
           swift-version: "6.3"
           free-disk-space: true
+          build-package: false
+          build-tests: false
+          run-tests: false
+      - name: Build each library target (Android)
+        run: |
+          for target in ForgeKit ZipKit ZipCommand UnzipCommand \
+                        GitHub GhCommand GitLab GlabCommand \
+                        SwiftGit GitCommand; do
+            echo "::group::swift build --target $target"
+            swift build --swift-sdk "$SWIFT_SDK_TARGET" --target "$target"
+            echo "::endgroup::"
+          done
