@@ -15,6 +15,7 @@
 #if canImport(Compression) || os(Linux) || os(Windows)
 
 import Foundation
+import Sandbox
 #if canImport(Compression)
 import Compression
 #else
@@ -83,6 +84,8 @@ public enum Lz4 {
         overwrite: Bool = false
     ) async throws -> URL {
         let target = destination ?? URL(fileURLWithPath: source.path + ".lz4")
+        try await Sandbox.authorize(source)
+        try await Sandbox.authorize(target)
         if FileManager.default.fileExists(atPath: target.path) && !overwrite {
             throw Lz4KitError.compressionFailed(
                 "'\(target.path)' already exists; pass overwrite: true to replace")
@@ -109,6 +112,8 @@ public enum Lz4 {
         } else {
             target = try inferDecompressedName(from: source)
         }
+        try await Sandbox.authorize(source)
+        try await Sandbox.authorize(target)
         if FileManager.default.fileExists(atPath: target.path) && !overwrite {
             throw Lz4KitError.decompressionFailed(
                 "'\(target.path)' already exists; pass overwrite: true to replace")

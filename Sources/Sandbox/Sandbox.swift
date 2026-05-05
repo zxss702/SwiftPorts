@@ -174,8 +174,8 @@ public struct Sandbox: Sendable {
     /// process CWD via `FileManager.default.currentDirectoryPath`.
     ///
     /// CLI commands resolving relative argv paths should use this
-    /// instead of `FileManager.default.currentDirectoryPath` so that
-    /// embedders can confine path resolution to the sandbox.
+    /// (or `resolve(_:)`) instead of `FileManager.default.currentDirectoryPath`
+    /// so that embedders can confine path resolution to the sandbox.
     public static var currentDirectory: URL {
         if let pwd = env("PWD"), !pwd.isEmpty {
             return URL(fileURLWithPath: pwd, isDirectory: true)
@@ -183,6 +183,25 @@ public struct Sandbox: Sendable {
         return URL(
             fileURLWithPath: FileManager.default.currentDirectoryPath,
             isDirectory: true)
+    }
+
+    /// Resolve a (possibly relative) path string into an absolute
+    /// `URL`. Absolute paths are returned as-is; relative paths
+    /// resolve against ``currentDirectory``. Use this instead of
+    /// `URL(fileURLWithPath:)` directly for any path that originates
+    /// from user input (CLI argv, config files, etc.) so the result
+    /// honors the sandbox's PWD rather than the process CWD.
+    public static func resolve(_ path: String) -> URL {
+        if path.hasPrefix("/") {
+            return URL(fileURLWithPath: path)
+        }
+        #if os(Windows)
+        if path.count >= 2,
+           let second = path.dropFirst().first, second == ":" {
+            return URL(fileURLWithPath: path)  // e.g. "C:\..."
+        }
+        #endif
+        return currentDirectory.appendingPathComponent(path)
     }
 
     public static var homeDirectory: URL {

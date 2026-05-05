@@ -6,6 +6,7 @@
 import ArgumentParser
 import Foundation
 import ZstdKit
+import Sandbox
 
 public enum ZstdMode: Sendable {
     case compress
@@ -184,7 +185,7 @@ enum ZstdEngine {
                 try await processStdin(mode: mode)
                 continue
             }
-            let url = URL(fileURLWithPath: file)
+            let url = Sandbox.resolve(file)
             if stdout {
                 try await emitFileToStdout(url: url, mode: mode)
                 if verbose {
@@ -220,6 +221,7 @@ enum ZstdEngine {
     }
 
     private static func emitFileToStdout(url: URL, mode: ZstdMode) async throws {
+        try await Sandbox.authorize(url)
         let bytes = try Data(contentsOf: url)
         let output: Data
         switch mode {

@@ -1,6 +1,7 @@
 import ArgumentParser
 import Foundation
 import GzipKit
+import Sandbox
 
 /// Shared engine for `gzip`, `gunzip`, and `zcat` — they're the same
 /// binary in upstream gzip, distinguished only by argv[0]. We model
@@ -186,7 +187,7 @@ enum GzipEngine {
                 try await processStdin(mode: mode)
                 continue
             }
-            let url = URL(fileURLWithPath: file)
+            let url = Sandbox.resolve(file)
             if stdout {
                 try await emitFileToStdout(url: url, mode: mode)
                 if verbose {
@@ -222,6 +223,7 @@ enum GzipEngine {
     }
 
     private static func emitFileToStdout(url: URL, mode: GzipMode) async throws {
+        try await Sandbox.authorize(url)
         let bytes = try Data(contentsOf: url)
         let output: Data
         switch mode {

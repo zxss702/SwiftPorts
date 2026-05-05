@@ -314,13 +314,14 @@ let package = Package(
         ),
         .target(
             name: "GzipKit",
-            dependencies: ["CZlib"],
+            dependencies: ["CZlib", "Sandbox"],
             path: "Sources/GzipKit/Lib"
         ),
         .target(
             name: "GzipCommand",
             dependencies: [
                 "GzipKit",
+                "Sandbox",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Sources/GzipKit/GzipCommand"
@@ -359,6 +360,7 @@ let package = Package(
         .target(
             name: "Bzip2Kit",
             dependencies: [
+                "Sandbox",
                 .target(name: "CBzip2",
                         condition: .when(platforms: [.macOS, .linux, .windows])),
             ],
@@ -368,6 +370,7 @@ let package = Package(
             name: "Bzip2Command",
             dependencies: [
                 "Bzip2Kit",
+                "Sandbox",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Sources/Bzip2Kit/Bzip2Command"
@@ -406,6 +409,7 @@ let package = Package(
         .target(
             name: "XzKit",
             dependencies: [
+                "Sandbox",
                 .target(name: "CLZMA",
                         condition: .when(platforms: [.linux, .windows])),
             ],
@@ -415,6 +419,7 @@ let package = Package(
             name: "XzCommand",
             dependencies: [
                 "XzKit",
+                "Sandbox",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Sources/XzKit/XzCommand"
@@ -448,6 +453,7 @@ let package = Package(
         .target(
             name: "ZstdKit",
             dependencies: [
+                "Sandbox",
                 .target(name: "CZstd",
                         condition: .when(platforms: [.macOS, .linux, .windows])),
             ],
@@ -457,6 +463,7 @@ let package = Package(
             name: "ZstdCommand",
             dependencies: [
                 "ZstdKit",
+                "Sandbox",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Sources/ZstdKit/ZstdCommand"
@@ -494,6 +501,7 @@ let package = Package(
         .target(
             name: "Lz4Kit",
             dependencies: [
+                "Sandbox",
                 .target(name: "CLz4",
                         condition: .when(platforms: [.linux, .windows])),
             ],
@@ -503,6 +511,7 @@ let package = Package(
             name: "Lz4Command",
             dependencies: [
                 "Lz4Kit",
+                "Sandbox",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Sources/Lz4Kit/Lz4Command"

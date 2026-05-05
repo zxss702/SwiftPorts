@@ -6,6 +6,7 @@
 import ArgumentParser
 import Foundation
 import Bzip2Kit
+import Sandbox
 
 /// Mode shared by `bzip2` / `bunzip2` / `bzcat` — the same engine
 /// dispatched by argv[0]. We expose three `AsyncParsableCommand`
@@ -188,7 +189,7 @@ enum Bzip2Engine {
                 try await processStdin(mode: mode)
                 continue
             }
-            let url = URL(fileURLWithPath: file)
+            let url = Sandbox.resolve(file)
             if stdout {
                 try await emitFileToStdout(url: url, mode: mode)
                 if verbose {
@@ -224,6 +225,7 @@ enum Bzip2Engine {
     }
 
     private static func emitFileToStdout(url: URL, mode: Bzip2Mode) async throws {
+        try await Sandbox.authorize(url)
         let bytes = try Data(contentsOf: url)
         let output: Data
         switch mode {

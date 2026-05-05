@@ -6,6 +6,7 @@
 import ArgumentParser
 import Foundation
 import Lz4Kit
+import Sandbox
 
 public enum Lz4Mode: Sendable {
     case compress
@@ -188,7 +189,7 @@ enum Lz4Engine {
                 try await processStdin(mode: mode)
                 continue
             }
-            let url = URL(fileURLWithPath: file)
+            let url = Sandbox.resolve(file)
             if stdout {
                 try await emitFileToStdout(url: url, mode: mode)
                 if verbose {
@@ -224,6 +225,7 @@ enum Lz4Engine {
     }
 
     private static func emitFileToStdout(url: URL, mode: Lz4Mode) async throws {
+        try await Sandbox.authorize(url)
         let bytes = try Data(contentsOf: url)
         let output: Data
         switch mode {

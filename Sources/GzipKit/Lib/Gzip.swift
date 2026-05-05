@@ -1,5 +1,6 @@
 import Foundation
 import CZlib
+import Sandbox
 
 /// Pure-Swift `gzip(1)` engine — single-file deflate/inflate via
 /// zlib directly. Compresses with `MAX_WBITS + 16` (gzip framing);
@@ -137,6 +138,8 @@ public enum Gzip {
         overwrite: Bool = false
     ) async throws -> URL {
         let target = destination ?? URL(fileURLWithPath: source.path + ".gz")
+        try await Sandbox.authorize(source)
+        try await Sandbox.authorize(target)
         if FileManager.default.fileExists(atPath: target.path) && !overwrite {
             throw GzipKitError.compressionFailed(
                 "'\(target.path)' already exists; pass overwrite: true to replace")
@@ -164,6 +167,8 @@ public enum Gzip {
         } else {
             target = try inferDecompressedName(from: source)
         }
+        try await Sandbox.authorize(source)
+        try await Sandbox.authorize(target)
         if FileManager.default.fileExists(atPath: target.path) && !overwrite {
             throw GzipKitError.decompressionFailed(
                 "'\(target.path)' already exists; pass overwrite: true to replace")

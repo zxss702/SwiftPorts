@@ -5,6 +5,7 @@
 
 import Foundation
 import CZstd
+import Sandbox
 
 /// Pure-Swift `zstd(1)` engine — single-file compression / decompression
 /// via libzstd's streaming API (`ZSTD_compressStream2` / `ZSTD_decompressStream`).
@@ -140,6 +141,8 @@ public enum Zstd {
         overwrite: Bool = false
     ) async throws -> URL {
         let target = destination ?? URL(fileURLWithPath: source.path + ".zst")
+        try await Sandbox.authorize(source)
+        try await Sandbox.authorize(target)
         if FileManager.default.fileExists(atPath: target.path) && !overwrite {
             throw ZstdKitError.compressionFailed(
                 "'\(target.path)' already exists; pass overwrite: true to replace")
@@ -166,6 +169,8 @@ public enum Zstd {
         } else {
             target = try inferDecompressedName(from: source)
         }
+        try await Sandbox.authorize(source)
+        try await Sandbox.authorize(target)
         if FileManager.default.fileExists(atPath: target.path) && !overwrite {
             throw ZstdKitError.decompressionFailed(
                 "'\(target.path)' already exists; pass overwrite: true to replace")

@@ -6,6 +6,7 @@
 import ArgumentParser
 import Foundation
 import XzKit
+import Sandbox
 
 public enum XzMode: Sendable {
     case compress
@@ -188,7 +189,7 @@ enum XzEngine {
                 try await processStdin(mode: mode)
                 continue
             }
-            let url = URL(fileURLWithPath: file)
+            let url = Sandbox.resolve(file)
             if stdout {
                 try await emitFileToStdout(url: url, mode: mode)
                 if verbose {
@@ -224,6 +225,7 @@ enum XzEngine {
     }
 
     private static func emitFileToStdout(url: URL, mode: XzMode) async throws {
+        try await Sandbox.authorize(url)
         let bytes = try Data(contentsOf: url)
         let output: Data
         switch mode {

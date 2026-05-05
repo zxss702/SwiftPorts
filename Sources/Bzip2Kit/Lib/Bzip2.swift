@@ -6,6 +6,7 @@
 #if os(macOS) || os(Linux) || os(Windows)
 import Foundation
 import CBzip2
+import Sandbox
 
 /// Pure-Swift `bzip2(1)` engine — single-file compression / decompression
 /// via libbz2's streaming API (`BZ2_bzCompress*` / `BZ2_bzDecompress*`).
@@ -128,6 +129,8 @@ public enum Bzip2 {
         overwrite: Bool = false
     ) async throws -> URL {
         let target = destination ?? URL(fileURLWithPath: source.path + ".bz2")
+        try await Sandbox.authorize(source)
+        try await Sandbox.authorize(target)
         if FileManager.default.fileExists(atPath: target.path) && !overwrite {
             throw Bzip2KitError.compressionFailed(
                 "'\(target.path)' already exists; pass overwrite: true to replace")
@@ -154,6 +157,8 @@ public enum Bzip2 {
         } else {
             target = try inferDecompressedName(from: source)
         }
+        try await Sandbox.authorize(source)
+        try await Sandbox.authorize(target)
         if FileManager.default.fileExists(atPath: target.path) && !overwrite {
             throw Bzip2KitError.decompressionFailed(
                 "'\(target.path)' already exists; pass overwrite: true to replace")
