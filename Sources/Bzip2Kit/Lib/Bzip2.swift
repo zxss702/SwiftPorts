@@ -18,8 +18,9 @@ public enum Bzip2 {
 
     // MARK: Data
 
-    /// Compress arbitrary bytes into a bzip2 stream.
-    public static func compress(_ data: Data) throws -> Data {
+    /// Compress arbitrary bytes into a bzip2 stream. Cooperatively
+    /// cancellable: each output chunk checks `Task.isCancelled`.
+    public static func compress(_ data: Data) async throws -> Data {
         var stream = bz_stream()
         let initResult = BZ2_bzCompressInit(
             &stream, defaultBlockSize, /*verbosity*/ 0, /*workFactor*/ 0)
@@ -40,6 +41,7 @@ public enum Bzip2 {
 
             var done = false
             while !done {
+                try Task.checkCancellation()
                 try outputBuffer.withUnsafeMutableBufferPointer { outPtr in
                     stream.next_out = outPtr.baseAddress.map { reinterpretAsCChar($0) }
                     stream.avail_out = UInt32(chunkSize)
@@ -63,8 +65,9 @@ public enum Bzip2 {
         return output
     }
 
-    /// Decompress a bzip2 stream back to its raw bytes.
-    public static func decompress(_ data: Data) throws -> Data {
+    /// Decompress a bzip2 stream back to its raw bytes. Cooperatively
+    /// cancellable: each output chunk checks `Task.isCancelled`.
+    public static func decompress(_ data: Data) async throws -> Data {
         var stream = bz_stream()
         let initResult = BZ2_bzDecompressInit(
             &stream, /*verbosity*/ 0, /*small*/ 0)
@@ -85,6 +88,7 @@ public enum Bzip2 {
 
             var done = false
             while !done {
+                try Task.checkCancellation()
                 try outputBuffer.withUnsafeMutableBufferPointer { outPtr in
                     stream.next_out = outPtr.baseAddress.map { reinterpretAsCChar($0) }
                     stream.avail_out = UInt32(chunkSize)
@@ -122,14 +126,14 @@ public enum Bzip2 {
         to destination: URL? = nil,
         keepInput: Bool = false,
         overwrite: Bool = false
-    ) throws -> URL {
+    ) async throws -> URL {
         let target = destination ?? URL(fileURLWithPath: source.path + ".bz2")
         if FileManager.default.fileExists(atPath: target.path) && !overwrite {
             throw Bzip2KitError.compressionFailed(
                 "'\(target.path)' already exists; pass overwrite: true to replace")
         }
         let bytes = try Data(contentsOf: source)
-        let compressed = try compress(bytes)
+        let compressed = try await compress(bytes)
         try compressed.write(to: target)
         if !keepInput { try? FileManager.default.removeItem(at: source) }
         return target
@@ -143,7 +147,7 @@ public enum Bzip2 {
         to destination: URL? = nil,
         keepInput: Bool = false,
         overwrite: Bool = false
-    ) throws -> URL {
+    ) async throws -> URL {
         let target: URL
         if let destination {
             target = destination
@@ -155,7 +159,7 @@ public enum Bzip2 {
                 "'\(target.path)' already exists; pass overwrite: true to replace")
         }
         let bytes = try Data(contentsOf: source)
-        let decompressed = try decompress(bytes)
+        let decompressed = try await decompress(bytes)
         try decompressed.write(to: target)
         if !keepInput { try? FileManager.default.removeItem(at: source) }
         return target

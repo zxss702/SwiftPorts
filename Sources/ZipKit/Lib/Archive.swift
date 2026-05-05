@@ -16,12 +16,12 @@ public enum Archive {
 
     // MARK: List
 
-    public static func list(at url: URL) throws -> [Entry] {
+    public static func list(at url: URL) async throws -> [Entry] {
         let reader = try newReader(at: url)
         return try collectEntries(reader: reader, readData: false).map(\.entry)
     }
 
-    public static func list(data: Data) throws -> [Entry] {
+    public static func list(data: Data) async throws -> [Entry] {
         let reader = try newReader(data: data)
         return try collectEntries(reader: reader, readData: false).map(\.entry)
     }
@@ -30,15 +30,15 @@ public enum Archive {
 
     /// Walks every entry, reading its bytes — libarchive validates
     /// per-format checksums (CRC32 for zip) during data reads, so a
-    /// successful walk implies integrity.
+    /// successful walk implies integrity. Cooperatively cancellable.
     @discardableResult
-    public static func test(at url: URL) throws -> [Entry] {
+    public static func test(at url: URL) async throws -> [Entry] {
         let reader = try newReader(at: url)
         return try collectEntries(reader: reader, readData: true).map(\.entry)
     }
 
     @discardableResult
-    public static func test(data: Data) throws -> [Entry] {
+    public static func test(data: Data) async throws -> [Entry] {
         let reader = try newReader(data: data)
         return try collectEntries(reader: reader, readData: true).map(\.entry)
     }
@@ -46,12 +46,12 @@ public enum Archive {
     // MARK: Read a single entry
 
     /// Returns the decompressed bytes of `entryPath`. Used by `unzip -p`.
-    public static func read(entry entryPath: String, from url: URL) throws -> Data {
+    public static func read(entry entryPath: String, from url: URL) async throws -> Data {
         let reader = try newReader(at: url)
         return try readSingleEntry(reader: reader, path: entryPath)
     }
 
-    public static func read(entry entryPath: String, data: Data) throws -> Data {
+    public static func read(entry entryPath: String, data: Data) async throws -> Data {
         let reader = try newReader(data: data)
         return try readSingleEntry(reader: reader, path: entryPath)
     }
@@ -61,16 +61,18 @@ public enum Archive {
     /// Writes each matching entry's bytes to `handle`, prefixed with a
     /// `=== <path> ===` header. Used by `unzip -p` (no header) and by
     /// SwiftGH's `gh run view --log` (header per file). Set
-    /// `printHeaders: false` to omit the prefix.
+    /// `printHeaders: false` to omit the prefix. Cooperatively
+    /// cancellable per entry.
     public static func streamEntries(
         from data: Data,
         to handle: FileHandle,
         matching options: ExtractOptions = .init(destination: URL(fileURLWithPath: "")),
         printHeaders: Bool = true
-    ) throws {
+    ) async throws {
         let reader = try newReader(data: data)
         var collected: [(path: String, data: Data)] = []
         try reader.forEachEntry { entry, reader in
+            try Task.checkCancellation()
             guard entry.fileType == .regular else { return }
             guard shouldInclude(entryPath: entry.pathname,
                                 includes: options.includes,
@@ -81,6 +83,7 @@ public enum Archive {
             collected.append((entry.pathname, bytes))
         }
         for (path, bytes) in collected.sorted(by: { $0.path < $1.path }) {
+            try Task.checkCancellation()
             if printHeaders {
                 handle.write(Data("\n=== \(path) ===\n".utf8))
             }
@@ -93,7 +96,7 @@ public enum Archive {
     @discardableResult
     public static func extract(
         from url: URL, options: ExtractOptions
-    ) throws -> [Entry] {
+    ) async throws -> [Entry] {
         let reader = try newReader(at: url)
         return try extract(reader: reader, options: options)
     }
@@ -101,7 +104,7 @@ public enum Archive {
     @discardableResult
     public static func extract(
         from data: Data, options: ExtractOptions
-    ) throws -> [Entry] {
+    ) async throws -> [Entry] {
         let reader = try newReader(data: data)
         return try extract(reader: reader, options: options)
     }
@@ -114,6 +117,7 @@ public enum Archive {
 
         var written: [Entry] = []
         try reader.forEachEntry { native, reader in
+            try Task.checkCancellation()
             // `-j` (junk paths) means flat extraction — skip directory
             // entries entirely; for files take only the basename.
             if options.junkPaths && native.fileType == .directory {
@@ -194,7 +198,7 @@ public enum Archive {
         at zipURL: URL,
         paths: [URL],
         options: CreateOptions = .init()
-    ) throws -> [Entry] {
+    ) async throws -> [Entry] {
         // Remove an existing archive — Info-ZIP appends to existing
         // archives by default but our minimal port replaces them.
         if FileManager.default.fileExists(atPath: zipURL.path) {
@@ -210,6 +214,7 @@ public enum Archive {
         var written: [Entry] = []
         let toAdd = try resolveInputs(paths: paths, options: options)
         for resolved in toAdd {
+            try Task.checkCancellation()
             let baseAttrs = (try? FileManager.default.attributesOfItem(
                 atPath: resolved.source.path)) ?? [:]
             let isDir = (baseAttrs[.type] as? FileAttributeType) == .typeDirectory
@@ -313,6 +318,7 @@ public enum Archive {
     ) throws -> [(entry: Entry, native: ArchiveEntry)] {
         var out: [(entry: Entry, native: ArchiveEntry)] = []
         try reader.forEachEntry { native, reader in
+            try Task.checkCancellation()
             if readData && native.fileType == .regular {
                 _ = try reader.readData()
             }
@@ -326,6 +332,7 @@ public enum Archive {
     ) throws -> Data {
         var found: Data?
         try reader.forEachEntry { native, reader in
+            try Task.checkCancellation()
             guard found == nil else { return }
             if native.pathname == entryPath {
                 found = try reader.readData()
@@ -359,6 +366,7 @@ public enum Archive {
         source: URL, prefix: String?, into resolved: inout [ResolvedInput],
         options: CreateOptions
     ) throws {
+        try Task.checkCancellation()
         let attrs = try FileManager.default.attributesOfItem(atPath: source.path)
         let type = attrs[.type] as? FileAttributeType
         let topName = source.lastPathComponent

@@ -30,7 +30,7 @@ import ZipKit
             to: nested.appendingPathComponent("nested.txt"))
 
         let archiveURL = workDir.appendingPathComponent("in-memory.zip")
-        try Archive.create(
+        try await Archive.create(
             at: archiveURL,
             paths: [src],
             options: CreateOptions(recursive: true))

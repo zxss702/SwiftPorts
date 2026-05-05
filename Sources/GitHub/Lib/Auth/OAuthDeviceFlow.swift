@@ -86,7 +86,7 @@ public actor OAuthDeviceFlow {
             ?? Date().addingTimeInterval(TimeInterval(deviceCode.expiresIn))
 
         while Date() < actualDeadline {
-            try? await Task.sleep(for: .seconds(interval))
+            try await Task.sleep(for: .seconds(interval))
             do {
                 return try await exchangeOnce(deviceCode: deviceCode.deviceCode)
             } catch OAuthDeviceFlowError.authorizationPending {

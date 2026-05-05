@@ -78,7 +78,7 @@ public struct Zstd: AsyncParsableCommand {
     public init() {}
 
     public func run() async throws {
-        try ZstdEngine.run(
+        try await ZstdEngine.run(
             mode: decompress ? .decompress : .compress,
             stdout: stdout,
             keep: keep,
@@ -122,7 +122,7 @@ public struct Unzstd: AsyncParsableCommand {
     public init() {}
 
     public func run() async throws {
-        try ZstdEngine.run(
+        try await ZstdEngine.run(
             mode: .decompress,
             stdout: stdout,
             keep: keep,
@@ -151,7 +151,7 @@ public struct Zstdcat: AsyncParsableCommand {
     public init() {}
 
     public func run() async throws {
-        try ZstdEngine.run(
+        try await ZstdEngine.run(
             mode: .decompress,
             stdout: true,
             keep: true,
@@ -173,19 +173,20 @@ enum ZstdEngine {
         quiet: Bool,
         verbose: Bool,
         files: [String]
-    ) throws {
+    ) async throws {
         if files.isEmpty || files == ["-"] {
-            try processStdin(mode: mode)
+            try await processStdin(mode: mode)
             return
         }
         for file in files {
+            try Task.checkCancellation()
             if file == "-" {
-                try processStdin(mode: mode)
+                try await processStdin(mode: mode)
                 continue
             }
             let url = URL(fileURLWithPath: file)
             if stdout {
-                try emitFileToStdout(url: url, mode: mode)
+                try await emitFileToStdout(url: url, mode: mode)
                 if verbose {
                     FileHandle.standardError.write(
                         Data("\(file) -> stdout\n".utf8))
@@ -194,10 +195,10 @@ enum ZstdEngine {
                 let result: URL
                 switch mode {
                 case .compress:
-                    result = try ZstdKit.Zstd.compressFile(
+                    result = try await ZstdKit.Zstd.compressFile(
                         at: url, keepInput: keep, overwrite: force)
                 case .decompress:
-                    result = try ZstdKit.Zstd.decompressFile(
+                    result = try await ZstdKit.Zstd.decompressFile(
                         at: url, keepInput: keep, overwrite: force)
                 }
                 if verbose {
@@ -208,22 +209,22 @@ enum ZstdEngine {
         }
     }
 
-    private static func processStdin(mode: ZstdMode) throws {
+    private static func processStdin(mode: ZstdMode) async throws {
         let input = FileHandle.standardInput.readDataToEndOfFile()
         let output: Data
         switch mode {
-        case .compress:   output = try ZstdKit.Zstd.compress(input)
-        case .decompress: output = try ZstdKit.Zstd.decompress(input)
+        case .compress:   output = try await ZstdKit.Zstd.compress(input)
+        case .decompress: output = try await ZstdKit.Zstd.decompress(input)
         }
         FileHandle.standardOutput.write(output)
     }
 
-    private static func emitFileToStdout(url: URL, mode: ZstdMode) throws {
+    private static func emitFileToStdout(url: URL, mode: ZstdMode) async throws {
         let bytes = try Data(contentsOf: url)
         let output: Data
         switch mode {
-        case .compress:   output = try ZstdKit.Zstd.compress(bytes)
-        case .decompress: output = try ZstdKit.Zstd.decompress(bytes)
+        case .compress:   output = try await ZstdKit.Zstd.compress(bytes)
+        case .decompress: output = try await ZstdKit.Zstd.decompress(bytes)
         }
         FileHandle.standardOutput.write(output)
     }

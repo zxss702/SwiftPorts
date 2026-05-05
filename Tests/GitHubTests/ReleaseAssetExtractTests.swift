@@ -50,16 +50,16 @@ import ZipKit
     // tar → XzKit compress) and exercises the `gh release download`
     // dispatcher's chained-decompression branch on iOS too.
     #if os(macOS) || os(Linux) || os(Windows)
-    @Test func extractTarBz2EndToEnd() throws {
-        try roundTripTarball(compression: .bzip2)
+    @Test func extractTarBz2EndToEnd() async throws {
+        try await roundTripTarball(compression: .bzip2)
     }
 
-    @Test func extractTarZstEndToEnd() throws {
-        try roundTripTarball(compression: .zstd)
+    @Test func extractTarZstEndToEnd() async throws {
+        try await roundTripTarball(compression: .zstd)
     }
     #endif
 
-    @Test func extractTarLz4EndToEnd() throws {
+    @Test func extractTarLz4EndToEnd() async throws {
         // tar.lz4 is chained on every platform — libarchive's lz4
         // filter isn't enabled in our build, so the dispatcher
         // routes through Lz4Kit + TarKit on macOS / iOS / Linux /
@@ -79,14 +79,14 @@ import ZipKit
 
         // Build a .tar.lz4 fixture via plain tar + Lz4Kit.
         let plainTar = work.appendingPathComponent("repo-1.2.3.tar")
-        try TarKit.Archive.create(at: plainTar, paths: [payloadDir])
+        try await TarKit.Archive.create(at: plainTar, paths: [payloadDir])
         let plainBytes = try Data(contentsOf: plainTar)
-        let lz4Bytes = try Lz4Kit.Lz4.compress(plainBytes)
+        let lz4Bytes = try await Lz4Kit.Lz4.compress(plainBytes)
         let archive = work.appendingPathComponent("repo-1.2.3.tar.lz4")
         try lz4Bytes.write(to: archive)
 
         let dest = work.appendingPathComponent("out", isDirectory: true)
-        try ArchiveFormatDetector.extract(
+        try await ArchiveFormatDetector.extract(
             archive: archive, format: .tar, into: dest)
 
         let readme = dest.appendingPathComponent("repo-1.2.3/README.md")
@@ -95,7 +95,7 @@ import ZipKit
         #expect(contents == "# README\n")
     }
 
-    @Test func extractTarXzEndToEnd() throws {
+    @Test func extractTarXzEndToEnd() async throws {
         let work = FileManager.default.temporaryDirectory
             .appendingPathComponent("release-extract-\(UUID().uuidString)",
                                     isDirectory: true)
@@ -118,19 +118,19 @@ import ZipKit
         let archive = work.appendingPathComponent("repo-1.2.3.tar.xz")
         #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         let plainTar = work.appendingPathComponent("repo-1.2.3.tar")
-        try TarKit.Archive.create(at: plainTar, paths: [payloadDir])
+        try await TarKit.Archive.create(at: plainTar, paths: [payloadDir])
         let plainBytes = try Data(contentsOf: plainTar)
-        let xzBytes = try XzKit.Xz.compress(plainBytes)
+        let xzBytes = try await XzKit.Xz.compress(plainBytes)
         try xzBytes.write(to: archive)
         #else
-        try TarKit.Archive.create(
+        try await TarKit.Archive.create(
             at: archive,
             paths: [payloadDir],
             options: TarKit.CreateOptions(compression: .xz))
         #endif
 
         let dest = work.appendingPathComponent("out", isDirectory: true)
-        try ArchiveFormatDetector.extract(
+        try await ArchiveFormatDetector.extract(
             archive: archive, format: .tar, into: dest)
 
         let readme = dest.appendingPathComponent("repo-1.2.3/README.md")
@@ -145,7 +145,7 @@ import ZipKit
     /// swift-archive traits via the per-platform-traits fork.
     private func roundTripTarball(
         compression: TarKit.Compression
-    ) throws {
+    ) async throws {
         let work = FileManager.default.temporaryDirectory
             .appendingPathComponent("release-extract-\(UUID().uuidString)",
                                     isDirectory: true)
@@ -167,13 +167,13 @@ import ZipKit
         default:     suffix = ".tar"
         }
         let archive = work.appendingPathComponent("repo-1.2.3" + suffix)
-        try TarKit.Archive.create(
+        try await TarKit.Archive.create(
             at: archive,
             paths: [payloadDir],
             options: TarKit.CreateOptions(compression: compression))
 
         let dest = work.appendingPathComponent("out", isDirectory: true)
-        try ArchiveFormatDetector.extract(
+        try await ArchiveFormatDetector.extract(
             archive: archive, format: .tar, into: dest)
 
         let readme = dest.appendingPathComponent("repo-1.2.3/README.md")
@@ -182,7 +182,7 @@ import ZipKit
         #expect(contents == "# README\n")
     }
 
-    @Test func extractTarGzEndToEnd() throws {
+    @Test func extractTarGzEndToEnd() async throws {
         let work = FileManager.default.temporaryDirectory
             .appendingPathComponent("release-extract-\(UUID().uuidString)",
                                     isDirectory: true)
@@ -197,14 +197,14 @@ import ZipKit
         try Data("# README\n".utf8).write(
             to: payloadDir.appendingPathComponent("README.md"))
         let archive = work.appendingPathComponent("repo-1.2.3.tar.gz")
-        try TarKit.Archive.create(
+        try await TarKit.Archive.create(
             at: archive,
             paths: [payloadDir],
             options: TarKit.CreateOptions(compression: .gzip))
 
         // Extract via the same routine the gh CLI uses.
         let dest = work.appendingPathComponent("out", isDirectory: true)
-        try ArchiveFormatDetector.extract(
+        try await ArchiveFormatDetector.extract(
             archive: archive, format: .tar, into: dest)
 
         let readme = dest.appendingPathComponent("repo-1.2.3/README.md")
@@ -213,7 +213,7 @@ import ZipKit
         #expect(contents == "# README\n")
     }
 
-    @Test func extractZipEndToEnd() throws {
+    @Test func extractZipEndToEnd() async throws {
         let work = FileManager.default.temporaryDirectory
             .appendingPathComponent("release-extract-\(UUID().uuidString)",
                                     isDirectory: true)
@@ -227,12 +227,12 @@ import ZipKit
         try Data("hello\n".utf8).write(
             to: payloadDir.appendingPathComponent("a.txt"))
         let archive = work.appendingPathComponent("payload.zip")
-        try ZipKit.Archive.create(
+        try await ZipKit.Archive.create(
             at: archive, paths: [payloadDir],
             options: ZipKit.CreateOptions(recursive: true))
 
         let dest = work.appendingPathComponent("out", isDirectory: true)
-        try ArchiveFormatDetector.extract(
+        try await ArchiveFormatDetector.extract(
             archive: archive, format: .zip, into: dest)
 
         let extracted = dest.appendingPathComponent("payload/a.txt")

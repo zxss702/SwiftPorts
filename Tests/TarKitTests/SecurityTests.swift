@@ -37,7 +37,7 @@ import enum Archive.FileType
         try writer.close()
     }
 
-    @Test func extractRejectsParentTraversal() throws {
+    @Test func extractRejectsParentTraversal() async throws {
         let work = tempDir()
         defer { try? FileManager.default.removeItem(at: work) }
         let archive = work.appendingPathComponent("evil.tar")
@@ -47,8 +47,8 @@ import enum Archive.FileType
             content: Data("pwned\n".utf8))
 
         let dest = work.appendingPathComponent("safe", isDirectory: true)
-        #expect(throws: TarKitError.self) {
-            try TarKit.Archive.extract(
+        await #expect(throws: TarKitError.self) {
+            try await TarKit.Archive.extract(
                 from: archive,
                 options: TarKit.ExtractOptions(destination: dest))
         }
@@ -57,7 +57,7 @@ import enum Archive.FileType
         #expect(!FileManager.default.fileExists(atPath: escapeAbove.path))
     }
 
-    @Test func extractRejectsAbsolutePath() throws {
+    @Test func extractRejectsAbsolutePath() async throws {
         let work = tempDir()
         defer { try? FileManager.default.removeItem(at: work) }
         let archive = work.appendingPathComponent("evil.tar")
@@ -67,14 +67,14 @@ import enum Archive.FileType
             content: Data("nope".utf8))
 
         let dest = work.appendingPathComponent("safe", isDirectory: true)
-        #expect(throws: TarKitError.self) {
-            try TarKit.Archive.extract(
+        await #expect(throws: TarKitError.self) {
+            try await TarKit.Archive.extract(
                 from: archive,
                 options: TarKit.ExtractOptions(destination: dest))
         }
     }
 
-    @Test func extractRejectsBackslashTraversal() throws {
+    @Test func extractRejectsBackslashTraversal() async throws {
         // tar entries are POSIX-pathed, but a malicious producer can
         // still embed backslashes; treat them as separators so a `..`
         // can't slip through.
@@ -87,14 +87,14 @@ import enum Archive.FileType
             content: Data("nope".utf8))
 
         let dest = work.appendingPathComponent("safe", isDirectory: true)
-        #expect(throws: TarKitError.self) {
-            try TarKit.Archive.extract(
+        await #expect(throws: TarKitError.self) {
+            try await TarKit.Archive.extract(
                 from: archive,
                 options: TarKit.ExtractOptions(destination: dest))
         }
     }
 
-    @Test func extractKeepsRelativeSymlinkRelative() throws {
+    @Test func extractKeepsRelativeSymlinkRelative() async throws {
         let work = tempDir()
         defer { try? FileManager.default.removeItem(at: work) }
 
@@ -110,13 +110,13 @@ import enum Archive.FileType
             withDestinationPath: "target.txt")
 
         let archive = work.appendingPathComponent("out.tar")
-        try TarKit.Archive.create(
+        try await TarKit.Archive.create(
             at: archive,
             paths: [src],
             options: TarKit.CreateOptions(followSymlinks: false))
 
         let extractDir = work.appendingPathComponent("out", isDirectory: true)
-        try TarKit.Archive.extract(
+        try await TarKit.Archive.extract(
             from: archive,
             options: TarKit.ExtractOptions(destination: extractDir))
 

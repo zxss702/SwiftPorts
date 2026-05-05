@@ -18,12 +18,12 @@ public enum Archive {
 
     // MARK: List
 
-    public static func list(at url: URL) throws -> [Entry] {
+    public static func list(at url: URL) async throws -> [Entry] {
         let reader = try newReader(at: url)
         return try collect(reader: reader)
     }
 
-    public static func list(data: Data) throws -> [Entry] {
+    public static func list(data: Data) async throws -> [Entry] {
         let reader = try newReader(data: data)
         return try collect(reader: reader)
     }
@@ -31,6 +31,7 @@ public enum Archive {
     private static func collect(reader: ArchiveReader) throws -> [Entry] {
         var out: [Entry] = []
         try reader.forEachEntry { native, _ in
+            try Task.checkCancellation()
             out.append(map(native))
         }
         return out
@@ -41,7 +42,7 @@ public enum Archive {
     @discardableResult
     public static func extract(
         from url: URL, options: ExtractOptions
-    ) throws -> [Entry] {
+    ) async throws -> [Entry] {
         let reader = try newReader(at: url)
         return try extract(reader: reader, options: options)
     }
@@ -49,7 +50,7 @@ public enum Archive {
     @discardableResult
     public static func extract(
         from data: Data, options: ExtractOptions
-    ) throws -> [Entry] {
+    ) async throws -> [Entry] {
         let reader = try newReader(data: data)
         return try extract(reader: reader, options: options)
     }
@@ -63,6 +64,7 @@ public enum Archive {
 
         var written: [Entry] = []
         try reader.forEachEntry { native, reader in
+            try Task.checkCancellation()
             let stripped = stripComponents(
                 path: native.pathname, count: options.stripComponents)
             // sanitize returns:
@@ -158,7 +160,7 @@ public enum Archive {
         at url: URL,
         paths: [URL],
         options: CreateOptions = .init()
-    ) throws -> [Entry] {
+    ) async throws -> [Entry] {
         let fm = FileManager.default
         if fm.fileExists(atPath: url.path) {
             try fm.removeItem(at: url)
@@ -192,6 +194,7 @@ public enum Archive {
         writer: ArchiveWriter, options: CreateOptions,
         into written: inout [Entry]
     ) throws {
+        try Task.checkCancellation()
         let fm = FileManager.default
         let attrs = try fm.attributesOfItem(atPath: source.path)
         let type = attrs[.type] as? FileAttributeType

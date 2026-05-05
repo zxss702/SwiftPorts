@@ -82,7 +82,7 @@ public struct Bzip2: AsyncParsableCommand {
     public init() {}
 
     public func run() async throws {
-        try Bzip2Engine.run(
+        try await Bzip2Engine.run(
             mode: decompress ? .decompress : .compress,
             stdout: stdout,
             keep: keep,
@@ -126,7 +126,7 @@ public struct Bunzip2: AsyncParsableCommand {
     public init() {}
 
     public func run() async throws {
-        try Bzip2Engine.run(
+        try await Bzip2Engine.run(
             mode: .decompress,
             stdout: stdout,
             keep: keep,
@@ -155,7 +155,7 @@ public struct Bzcat: AsyncParsableCommand {
     public init() {}
 
     public func run() async throws {
-        try Bzip2Engine.run(
+        try await Bzip2Engine.run(
             mode: .decompress,
             stdout: true,
             keep: true,
@@ -177,19 +177,20 @@ enum Bzip2Engine {
         quiet: Bool,
         verbose: Bool,
         files: [String]
-    ) throws {
+    ) async throws {
         if files.isEmpty || files == ["-"] {
-            try processStdin(mode: mode)
+            try await processStdin(mode: mode)
             return
         }
         for file in files {
+            try Task.checkCancellation()
             if file == "-" {
-                try processStdin(mode: mode)
+                try await processStdin(mode: mode)
                 continue
             }
             let url = URL(fileURLWithPath: file)
             if stdout {
-                try emitFileToStdout(url: url, mode: mode)
+                try await emitFileToStdout(url: url, mode: mode)
                 if verbose {
                     FileHandle.standardError.write(
                         Data("\(file) -> stdout\n".utf8))
@@ -198,10 +199,10 @@ enum Bzip2Engine {
                 let result: URL
                 switch mode {
                 case .compress:
-                    result = try Bzip2Kit.Bzip2.compressFile(
+                    result = try await Bzip2Kit.Bzip2.compressFile(
                         at: url, keepInput: keep, overwrite: force)
                 case .decompress:
-                    result = try Bzip2Kit.Bzip2.decompressFile(
+                    result = try await Bzip2Kit.Bzip2.decompressFile(
                         at: url, keepInput: keep, overwrite: force)
                 }
                 if verbose {
@@ -212,22 +213,22 @@ enum Bzip2Engine {
         }
     }
 
-    private static func processStdin(mode: Bzip2Mode) throws {
+    private static func processStdin(mode: Bzip2Mode) async throws {
         let input = FileHandle.standardInput.readDataToEndOfFile()
         let output: Data
         switch mode {
-        case .compress:   output = try Bzip2Kit.Bzip2.compress(input)
-        case .decompress: output = try Bzip2Kit.Bzip2.decompress(input)
+        case .compress:   output = try await Bzip2Kit.Bzip2.compress(input)
+        case .decompress: output = try await Bzip2Kit.Bzip2.decompress(input)
         }
         FileHandle.standardOutput.write(output)
     }
 
-    private static func emitFileToStdout(url: URL, mode: Bzip2Mode) throws {
+    private static func emitFileToStdout(url: URL, mode: Bzip2Mode) async throws {
         let bytes = try Data(contentsOf: url)
         let output: Data
         switch mode {
-        case .compress:   output = try Bzip2Kit.Bzip2.compress(bytes)
-        case .decompress: output = try Bzip2Kit.Bzip2.decompress(bytes)
+        case .compress:   output = try await Bzip2Kit.Bzip2.compress(bytes)
+        case .decompress: output = try await Bzip2Kit.Bzip2.decompress(bytes)
         }
         FileHandle.standardOutput.write(output)
     }

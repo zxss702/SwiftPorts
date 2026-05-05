@@ -52,6 +52,7 @@ public actor APIClient {
         var collected: [T] = []
         var nextQuery = query
         while pages < maxPages {
+            try Task.checkCancellation()
             let url = makeURL(path: path, query: nextQuery)
             let response = try await perform(method: .get, url: url, body: nil)
             let page: [T] = try decode([T].self, from: response)

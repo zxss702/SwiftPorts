@@ -51,6 +51,7 @@ extension GitClient {
 
         var names: [String] = []
         while true {
+            try Task.checkCancellation()
             var ref: OpaquePointer?
             var branchType = GIT_BRANCH_LOCAL
             let rc = git_branch_next(&ref, &branchType, iter)

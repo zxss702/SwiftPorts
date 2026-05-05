@@ -16,8 +16,9 @@ public enum Zstd {
 
     // MARK: Data
 
-    /// Compress arbitrary bytes into a zstd frame.
-    public static func compress(_ data: Data) throws -> Data {
+    /// Compress arbitrary bytes into a zstd frame. Cooperatively
+    /// cancellable: each output chunk checks `Task.isCancelled`.
+    public static func compress(_ data: Data) async throws -> Data {
         guard let cctx = ZSTD_createCCtx() else {
             throw ZstdKitError.compressionFailed("ZSTD_createCCtx returned NULL")
         }
@@ -41,6 +42,7 @@ public enum Zstd {
                 pos: 0)
             var done = false
             while !done {
+                try Task.checkCancellation()
                 try outputBuffer.withUnsafeMutableBufferPointer { outPtr in
                     var outBuf = ZSTD_outBuffer(
                         dst: UnsafeMutableRawPointer(outPtr.baseAddress),
@@ -65,8 +67,9 @@ public enum Zstd {
 
     /// Decompress a zstd frame back to its raw bytes. Handles
     /// concatenated frames natively — zstd's streaming decoder loops
-    /// across frame boundaries.
-    public static func decompress(_ data: Data) throws -> Data {
+    /// across frame boundaries. Cooperatively cancellable: each
+    /// output chunk checks `Task.isCancelled`.
+    public static func decompress(_ data: Data) async throws -> Data {
         // Empty input is never a valid zstd stream — at minimum a
         // 4-byte magic + frame header + epilogue must be present.
         // Without this check the loop below would not iterate, leave
@@ -97,6 +100,7 @@ public enum Zstd {
             // both buffers are exhausted.
             var lastResult: size_t = 0
             while inBuf.pos < inBuf.size {
+                try Task.checkCancellation()
                 try outputBuffer.withUnsafeMutableBufferPointer { outPtr in
                     var outBuf = ZSTD_outBuffer(
                         dst: UnsafeMutableRawPointer(outPtr.baseAddress),
@@ -134,14 +138,14 @@ public enum Zstd {
         to destination: URL? = nil,
         keepInput: Bool = false,
         overwrite: Bool = false
-    ) throws -> URL {
+    ) async throws -> URL {
         let target = destination ?? URL(fileURLWithPath: source.path + ".zst")
         if FileManager.default.fileExists(atPath: target.path) && !overwrite {
             throw ZstdKitError.compressionFailed(
                 "'\(target.path)' already exists; pass overwrite: true to replace")
         }
         let bytes = try Data(contentsOf: source)
-        let compressed = try compress(bytes)
+        let compressed = try await compress(bytes)
         try compressed.write(to: target)
         if !keepInput { try? FileManager.default.removeItem(at: source) }
         return target
@@ -155,7 +159,7 @@ public enum Zstd {
         to destination: URL? = nil,
         keepInput: Bool = false,
         overwrite: Bool = false
-    ) throws -> URL {
+    ) async throws -> URL {
         let target: URL
         if let destination {
             target = destination
@@ -167,7 +171,7 @@ public enum Zstd {
                 "'\(target.path)' already exists; pass overwrite: true to replace")
         }
         let bytes = try Data(contentsOf: source)
-        let decompressed = try decompress(bytes)
+        let decompressed = try await decompress(bytes)
         try decompressed.write(to: target)
         if !keepInput { try? FileManager.default.removeItem(at: source) }
         return target

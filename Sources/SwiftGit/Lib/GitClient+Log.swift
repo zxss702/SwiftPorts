@@ -121,6 +121,7 @@ extension GitClient {
 
             var entries: [LogEntry] = []
             while query.maxCount.map({ entries.count < $0 }) ?? true {
+                try Task.checkCancellation()
                 var oid = git_oid()
                 let rc = git_revwalk_next(&oid, walker)
                 if rc == GIT_ITEROVER.rawValue { break }

@@ -77,7 +77,7 @@ public struct Gzip: AsyncParsableCommand {
     public init() {}
 
     public func run() async throws {
-        try GzipEngine.run(
+        try await GzipEngine.run(
             mode: decompress ? .decompress : .compress,
             stdout: stdout,
             keep: keep,
@@ -121,7 +121,7 @@ public struct Gunzip: AsyncParsableCommand {
     public init() {}
 
     public func run() async throws {
-        try GzipEngine.run(
+        try await GzipEngine.run(
             mode: .decompress,
             stdout: stdout,
             keep: keep,
@@ -151,7 +151,7 @@ public struct Zcat: AsyncParsableCommand {
     public init() {}
 
     public func run() async throws {
-        try GzipEngine.run(
+        try await GzipEngine.run(
             mode: .decompress,
             stdout: true,
             keep: true,
@@ -173,21 +173,22 @@ enum GzipEngine {
         quiet: Bool,
         verbose: Bool,
         files: [String]
-    ) throws {
+    ) async throws {
         // No files (or "-") → stream stdin to stdout.
         if files.isEmpty || files == ["-"] {
-            try processStdin(mode: mode)
+            try await processStdin(mode: mode)
             return
         }
 
         for file in files {
+            try Task.checkCancellation()
             if file == "-" {
-                try processStdin(mode: mode)
+                try await processStdin(mode: mode)
                 continue
             }
             let url = URL(fileURLWithPath: file)
             if stdout {
-                try emitFileToStdout(url: url, mode: mode)
+                try await emitFileToStdout(url: url, mode: mode)
                 if verbose {
                     FileHandle.standardError.write(
                         Data("\(file) -> stdout\n".utf8))
@@ -196,10 +197,10 @@ enum GzipEngine {
                 let result: URL
                 switch mode {
                 case .compress:
-                    result = try GzipKit.Gzip.compressFile(
+                    result = try await GzipKit.Gzip.compressFile(
                         at: url, keepInput: keep, overwrite: force)
                 case .decompress:
-                    result = try GzipKit.Gzip.decompressFile(
+                    result = try await GzipKit.Gzip.decompressFile(
                         at: url, keepInput: keep, overwrite: force)
                 }
                 if verbose {
@@ -210,22 +211,22 @@ enum GzipEngine {
         }
     }
 
-    private static func processStdin(mode: GzipMode) throws {
+    private static func processStdin(mode: GzipMode) async throws {
         let input = FileHandle.standardInput.readDataToEndOfFile()
         let output: Data
         switch mode {
-        case .compress:   output = try GzipKit.Gzip.compress(input)
-        case .decompress: output = try GzipKit.Gzip.decompress(input)
+        case .compress:   output = try await GzipKit.Gzip.compress(input)
+        case .decompress: output = try await GzipKit.Gzip.decompress(input)
         }
         FileHandle.standardOutput.write(output)
     }
 
-    private static func emitFileToStdout(url: URL, mode: GzipMode) throws {
+    private static func emitFileToStdout(url: URL, mode: GzipMode) async throws {
         let bytes = try Data(contentsOf: url)
         let output: Data
         switch mode {
-        case .compress:   output = try GzipKit.Gzip.compress(bytes)
-        case .decompress: output = try GzipKit.Gzip.decompress(bytes)
+        case .compress:   output = try await GzipKit.Gzip.compress(bytes)
+        case .decompress: output = try await GzipKit.Gzip.decompress(bytes)
         }
         FileHandle.standardOutput.write(output)
     }

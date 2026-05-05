@@ -33,6 +33,7 @@ extension GitClient {
             var entries: [ReflogEntry] = []
             entries.reserveCapacity(count)
             for i in 0..<count {
+                try Task.checkCancellation()
                 guard let entry = git_reflog_entry_byindex(log, i) else { continue }
 
                 var oldOID = git_reflog_entry_id_old(entry)?.pointee ?? git_oid()

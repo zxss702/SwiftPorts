@@ -110,6 +110,7 @@ extension GitClient {
     ) throws {
         let count = git_tree_entrycount(tree)
         for i in 0..<count {
+            try Task.checkCancellation()
             guard let entry = git_tree_entry_byindex(tree, i) else { continue }
             let name = String(cString: git_tree_entry_name(entry))
             let kind = git_tree_entry_type(entry)

@@ -87,7 +87,7 @@ struct ReleaseDownload: AsyncParsableCommand {
                     isDirectory: true)
                 try FileManager.default.createDirectory(
                     at: extractDir, withIntermediateDirectories: true)
-                try ArchiveFormatDetector.extract(
+                try await ArchiveFormatDetector.extract(
                     archive: dest, format: format, into: extractDir)
                 print("  ↳ extracted into \(extractDir.lastPathComponent)/")
                 if noKeepArchive {
@@ -159,10 +159,10 @@ enum ArchiveFormatDetector {
         return name
     }
 
-    static func extract(archive: URL, format: Format, into dest: URL) throws {
+    static func extract(archive: URL, format: Format, into dest: URL) async throws {
         switch format {
         case .zip:
-            try ZipKit.Archive.extract(
+            try await ZipKit.Archive.extract(
                 from: archive,
                 options: ZipKit.ExtractOptions(destination: dest))
         case .tar:
@@ -193,11 +193,11 @@ enum ArchiveFormatDetector {
             #if canImport(Compression) || os(Linux) || os(Windows)
             if lower.hasSuffix(".tar.lz4") || lower.hasSuffix(".tlz4") {
                 let stagingTar = makeStagingTarURL()
-                _ = try Lz4Kit.Lz4.decompressFile(
+                _ = try await Lz4Kit.Lz4.decompressFile(
                     at: archive, to: stagingTar,
                     keepInput: true, overwrite: true)
                 defer { try? FileManager.default.removeItem(at: stagingTar) }
-                try TarKit.Archive.extract(
+                try await TarKit.Archive.extract(
                     from: stagingTar,
                     options: TarKit.ExtractOptions(destination: dest))
                 return
@@ -206,17 +206,17 @@ enum ArchiveFormatDetector {
             #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
             if lower.hasSuffix(".tar.xz") || lower.hasSuffix(".txz") {
                 let stagingTar = makeStagingTarURL()
-                _ = try XzKit.Xz.decompressFile(
+                _ = try await XzKit.Xz.decompressFile(
                     at: archive, to: stagingTar,
                     keepInput: true, overwrite: true)
                 defer { try? FileManager.default.removeItem(at: stagingTar) }
-                try TarKit.Archive.extract(
+                try await TarKit.Archive.extract(
                     from: stagingTar,
                     options: TarKit.ExtractOptions(destination: dest))
                 return
             }
             #endif
-            try TarKit.Archive.extract(
+            try await TarKit.Archive.extract(
                 from: archive,
                 options: TarKit.ExtractOptions(destination: dest))
         }

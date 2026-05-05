@@ -102,6 +102,7 @@ extension GitClient {
             var entries: [StatusEntry] = []
             let count = Int(git_status_list_entrycount(list))
             for i in 0..<count {
+                try Task.checkCancellation()
                 guard let raw = git_status_byindex(list, i)?.pointee
                 else { continue }
                 if let e = makeEntry(raw) {

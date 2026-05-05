@@ -80,7 +80,7 @@ struct GitClientArchiveTests {
             treeish: "HEAD", format: .tar, to: archive)
 
         let extractDir = dir.appendingPathComponent("out", isDirectory: true)
-        try TarKit.Archive.extract(
+        try await TarKit.Archive.extract(
             from: archive,
             options: TarKit.ExtractOptions(destination: extractDir))
 
@@ -147,7 +147,7 @@ struct GitClientArchiveTests {
         try await client.archiveTree(
             treeish: "HEAD", format: .tar, to: archive)
 
-        let entries = try TarKit.Archive.list(at: archive)
+        let entries = try await TarKit.Archive.list(at: archive)
         let expected = ISO8601DateFormatter().date(from: when)!
         // Allow ±2s tolerance for tar's per-second granularity.
         for e in entries {
@@ -170,7 +170,7 @@ struct GitClientArchiveTests {
         try await client.archiveTree(
             treeish: "HEAD", format: .tar, to: archive,
             prefix: "myproj-1.0")
-        let entries = try TarKit.Archive.list(at: archive)
+        let entries = try await TarKit.Archive.list(at: archive)
         #expect(entries.allSatisfy { $0.path.hasPrefix("myproj-1.0/") })
         #expect(entries.contains { $0.path == "myproj-1.0/README.md" })
     }

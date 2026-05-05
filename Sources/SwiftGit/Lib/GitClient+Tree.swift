@@ -68,6 +68,7 @@ extension GitClient {
         // keeps the result type-safe and avoids the boxing dance.
         var stack: [(OpaquePointer?, String)] = [(tree, "")]
         while let (current, prefix) = stack.popLast() {
+            try Task.checkCancellation()
             let count = git_tree_entrycount(current)
             for i in 0..<count {
                 guard let entry = git_tree_entry_byindex(current, i) else { continue }
