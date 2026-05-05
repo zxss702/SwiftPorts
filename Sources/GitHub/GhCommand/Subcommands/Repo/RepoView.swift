@@ -11,18 +11,31 @@ struct RepoView: AsyncParsableCommand {
     @Argument(help: "Repository as OWNER/REPO. Omit to use the current directory's git remote.")
     var repository: RepositoryReference?
 
-    @Flag(name: .long, help: "Print the JSON response body.")
-    var json: Bool = false
+    @Option(name: .long,
+            help: "Output JSON with the specified fields (comma-separated).")
+    var json: String?
 
     func run() async throws {
         let target = try await RepositoryResolver.resolve(positional: repository)
-        let client = try await CommandContext.apiClient()
-        let repo: Repository = try await client.get("repos/\(target.slug)")
 
-        if json {
-            print(try CodableOutput.prettyJSON(repo))
+        if let json {
+            let fields = try JSONFieldSelector.parse(raw: json, fieldMap: RepoFields.map)
+            let gql = try await CommandContext.graphQLClient()
+            let response: RepositoryViewResponse = try await gql.query(
+                RepositoryViewQueries.view,
+                variables: [
+                    "owner": .string(target.owner),
+                    "name":  .string(target.name),
+                ])
+            guard let repo = response.repository else {
+                throw ValidationError("No repo \(target.slug).")
+            }
+            print(try JSONFieldSelector.render(item: repo, fields: fields, fieldMap: RepoFields.map))
             return
         }
+
+        let client = try await CommandContext.apiClient()
+        let repo: Repository = try await client.get("repos/\(target.slug)")
 
         print("\(repo.fullName)")
         if let desc = repo.description, !desc.isEmpty {

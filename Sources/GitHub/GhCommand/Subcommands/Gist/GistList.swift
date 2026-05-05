@@ -18,9 +18,6 @@ struct GistList: AsyncParsableCommand {
     @Flag(name: .long, help: "Only show secret gists.")
     var secretOnly: Bool = false
 
-    @Flag(name: .long, help: "Print as JSON array.")
-    var json: Bool = false
-
     func run() async throws {
         let client = try await CommandContext.apiClient()
         let perPage = min(limit, 100)
@@ -34,10 +31,6 @@ struct GistList: AsyncParsableCommand {
         }
         let trimmed = Array(filtered.prefix(limit))
 
-        if json {
-            print(try CodableOutput.prettyJSON(trimmed))
-            return
-        }
         if trimmed.isEmpty {
             print("No gists found.")
             return

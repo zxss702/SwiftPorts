@@ -16,8 +16,9 @@ struct ReleaseView: AsyncParsableCommand {
     @Argument(help: "Tag name. Omit for the latest release.")
     var tag: String?
 
-    @Flag(name: .long, help: "Print the JSON response body.")
-    var json: Bool = false
+    @Option(name: .long,
+            help: "Output JSON with the specified fields (comma-separated).")
+    var json: String?
 
     func run() async throws {
         let target = try await RepositoryResolver.resolve(flag: repo)
@@ -26,10 +27,19 @@ struct ReleaseView: AsyncParsableCommand {
             ?? "repos/\(target.slug)/releases/latest"
         let release: Release = try await client.get(path)
 
-        if json {
-            print(try CodableOutput.prettyJSON(release))
+        if let json {
+            let fields = try JSONFieldSelector.parse(raw: json, fieldMap: ReleaseFields.map)
+            let latestTag: String?
+            if fields.contains("isLatest") {
+                latestTag = await ReleaseList.latestReleaseTag(client: client, slug: target.slug)
+            } else {
+                latestTag = nil
+            }
+            let context = ReleaseFields.Context(release: release, latestTag: latestTag)
+            print(try JSONFieldSelector.render(item: context, fields: fields, fieldMap: ReleaseFields.map))
             return
         }
+
         print("\(release.tagName)  \(release.name ?? "")")
         if let when = release.publishedAt {
             print("published: \(ISO8601DateFormatter().string(from: when))")

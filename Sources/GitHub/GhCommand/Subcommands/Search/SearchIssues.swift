@@ -12,7 +12,7 @@ struct SearchIssuesBase {
         author: String?,
         repo: String?,
         limit: Int,
-        json: Bool
+        json: String?
     ) async throws {
         guard !rawQuery.isEmpty else {
             throw ValidationError("Provide a search query.")
@@ -31,8 +31,9 @@ struct SearchIssuesBase {
             ])
         let trimmed = Array(result.items.prefix(limit))
 
-        if json {
-            print(try CodableOutput.prettyJSON(trimmed))
+        if let json {
+            let fields = try JSONFieldSelector.parse(raw: json, fieldMap: SearchFields.issues)
+            print(try JSONFieldSelector.render(items: trimmed, fields: fields, fieldMap: SearchFields.issues))
             return
         }
         if trimmed.isEmpty {
@@ -59,7 +60,9 @@ struct SearchIssuesCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Filter by state (open / closed).") var state: String?
     @Option(name: .long, help: "Filter by author.") var author: String?
     @Option(name: [.short, .long], help: "Filter to a specific repo (OWNER/NAME).") var repo: String?
-    @Flag(name: .long) var json: Bool = false
+    @Option(name: .long,
+            help: "Output JSON with the specified fields (comma-separated).")
+    var json: String?
 
     func run() async throws {
         try await SearchIssuesBase.run(
@@ -80,7 +83,9 @@ struct SearchPrsCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Filter by state (open / closed / merged).") var state: String?
     @Option(name: .long, help: "Filter by author.") var author: String?
     @Option(name: [.short, .long], help: "Filter to a specific repo (OWNER/NAME).") var repo: String?
-    @Flag(name: .long) var json: Bool = false
+    @Option(name: .long,
+            help: "Output JSON with the specified fields (comma-separated).")
+    var json: String?
 
     func run() async throws {
         try await SearchIssuesBase.run(

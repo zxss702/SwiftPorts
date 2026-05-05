@@ -23,8 +23,9 @@ struct ProjectItemList: AsyncParsableCommand {
             help: "Maximum items to fetch.")
     var limit: Int = 30
 
-    @Flag(name: .long, help: "Print as JSON array.")
-    var json: Bool = false
+    @Option(name: .customLong("format"),
+            help: "Output format: {json}.")
+    var format: ProjectFormat?
 
     func run() async throws {
         let client = try await CommandContext.graphQLClient()
@@ -66,8 +67,12 @@ struct ProjectItemList: AsyncParsableCommand {
         }
 
         let trimmed = Array(connection.nodes.prefix(limit))
-        if json {
-            print(try CodableOutput.prettyJSON(trimmed))
+        if format == .json {
+            let payload: [String: Any] = [
+                "items": trimmed.map { itemDict($0) },
+                "totalCount": connection.totalCount,
+            ]
+            print(try ProjectJSONOutput.render(payload))
             return
         }
         if trimmed.isEmpty {
@@ -88,5 +93,51 @@ struct ProjectItemList: AsyncParsableCommand {
         case .draftIssue(let d): return "(draft) \(d.title)"
         case .unknown, nil: return "(redacted or unknown)"
         }
+    }
+
+    /// Upstream `gh project item-list --format json` shape per item:
+    /// `{"id","title","content":{"type","number","title","state","url"}}`.
+    /// Draft issues lack number/state and use type "DraftIssue".
+    private func itemDict(_ item: ProjectV2Item) -> [String: Any] {
+        var content: [String: Any] = [:]
+        switch item.content {
+        case .issue(let i):
+            content = [
+                "type": "Issue",
+                "number": i.number,
+                "title": i.title,
+                "state": i.state,
+                "url": i.url.absoluteString,
+            ]
+        case .pullRequest(let p):
+            content = [
+                "type": "PullRequest",
+                "number": p.number,
+                "title": p.title,
+                "state": p.state,
+                "url": p.url.absoluteString,
+            ]
+        case .draftIssue(let d):
+            content = [
+                "type": "DraftIssue",
+                "title": d.title,
+                "body": d.body ?? "",
+            ]
+        case .unknown, .none:
+            content = ["type": "Redacted"]
+        }
+        let title: String = {
+            switch item.content {
+            case .issue(let i): return i.title
+            case .pullRequest(let p): return p.title
+            case .draftIssue(let d): return d.title
+            case .unknown, .none: return ""
+            }
+        }()
+        return [
+            "id": item.id,
+            "title": title,
+            "content": content,
+        ]
     }
 }

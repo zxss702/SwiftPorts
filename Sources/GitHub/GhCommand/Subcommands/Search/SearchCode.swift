@@ -18,15 +18,22 @@ struct SearchCode: AsyncParsableCommand {
     @Option(name: [.short, .customLong("limit")], help: "Maximum results.")
     var limit: Int = 30
 
-    @Flag(name: .long, help: "Print as JSON array.")
-    var json: Bool = false
+    @Option(name: [.short, .long],
+            help: "Filter to a specific repo (OWNER/NAME).")
+    var repo: String?
+
+    @Option(name: .long,
+            help: "Output JSON with the specified fields (comma-separated).")
+    var json: String?
 
     func run() async throws {
         guard !query.isEmpty else {
             throw ValidationError("Provide a search query.")
         }
         let client = try await CommandContext.apiClient()
-        let q = query.joined(separator: " ")
+        var qParts = query
+        if let repo { qParts.append("repo:\(repo)") }
+        let q = qParts.joined(separator: " ")
         let result: SearchResult<CodeSearchItem> = try await client.get(
             "search/code",
             query: [
@@ -35,8 +42,9 @@ struct SearchCode: AsyncParsableCommand {
             ])
         let trimmed = Array(result.items.prefix(limit))
 
-        if json {
-            print(try CodableOutput.prettyJSON(trimmed))
+        if let json {
+            let fields = try JSONFieldSelector.parse(raw: json, fieldMap: SearchFields.code)
+            print(try JSONFieldSelector.render(items: trimmed, fields: fields, fieldMap: SearchFields.code))
             return
         }
         if trimmed.isEmpty {

@@ -22,8 +22,9 @@ struct SearchRepos: AsyncParsableCommand {
     @Option(name: .long, help: "Order: asc or desc.")
     var order: String = "desc"
 
-    @Flag(name: .long, help: "Print as JSON array.")
-    var json: Bool = false
+    @Option(name: .long,
+            help: "Output JSON with the specified fields (comma-separated).")
+    var json: String?
 
     func run() async throws {
         guard !query.isEmpty else {
@@ -42,8 +43,9 @@ struct SearchRepos: AsyncParsableCommand {
             "search/repositories", query: items)
         let trimmed = Array(result.items.prefix(limit))
 
-        if json {
-            print(try CodableOutput.prettyJSON(trimmed))
+        if let json {
+            let fields = try JSONFieldSelector.parse(raw: json, fieldMap: SearchFields.repos)
+            print(try JSONFieldSelector.render(items: trimmed, fields: fields, fieldMap: SearchFields.repos))
             return
         }
         if trimmed.isEmpty {

@@ -31,8 +31,9 @@ struct RunList: AsyncParsableCommand {
             help: "Filter by event (push, pull_request, etc).")
     var event: String?
 
-    @Flag(name: .long, help: "Print as JSON array.")
-    var json: Bool = false
+    @Option(name: .long,
+            help: "Output JSON with the specified fields (comma-separated).")
+    var json: String?
 
     func run() async throws {
         let target = try await RepositoryResolver.resolve(flag: repo)
@@ -55,8 +56,9 @@ struct RunList: AsyncParsableCommand {
         let envelope: WorkflowRunList = try await client.get(path, query: query)
         let trimmed = Array(envelope.workflowRuns.prefix(limit))
 
-        if json {
-            print(try CodableOutput.prettyJSON(trimmed))
+        if let json {
+            let fields = try JSONFieldSelector.parse(raw: json, fieldMap: RunFields.list)
+            print(try JSONFieldSelector.render(items: trimmed, fields: fields, fieldMap: RunFields.list))
             return
         }
         if trimmed.isEmpty {
@@ -70,4 +72,27 @@ struct RunList: AsyncParsableCommand {
             print("\(run.id)\t\(status)\t\(run.event)\t\(title)\t\(run.headBranch ?? "-")\t\(when)")
         }
     }
+}
+
+enum RunFields {
+    /// Fields exposed by `gh run list --json` and `gh run view --json`.
+    /// Names and ordering match upstream gh.
+    static let list: [String: @Sendable (WorkflowRun) -> Any?] = [
+        "attempt":            { $0.runAttempt },
+        "conclusion":         { $0.conclusion },
+        "createdAt":          { JSONFieldSelector.iso8601($0.createdAt) },
+        "databaseId":         { $0.id },
+        "displayTitle":       { $0.displayTitle },
+        "event":              { $0.event },
+        "headBranch":         { $0.headBranch },
+        "headSha":            { $0.headSha },
+        "name":               { $0.name },
+        "number":             { $0.runNumber },
+        "startedAt":          { $0.runStartedAt.map(JSONFieldSelector.iso8601) },
+        "status":             { $0.status },
+        "updatedAt":          { JSONFieldSelector.iso8601($0.updatedAt) },
+        "url":                { $0.htmlUrl.absoluteString },
+        "workflowDatabaseId": { $0.workflowId },
+        "workflowName":       { $0.name },
+    ]
 }

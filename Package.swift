@@ -80,6 +80,14 @@ let package = Package(
         .executable(name: "unlz4", targets: ["unlz4"]),
         .executable(name: "lz4cat", targets: ["lz4cat"]),
 
+        // JqKit umbrella — pure-Swift jq engine. No system C dependency,
+        // so the library and command targets work everywhere; the `jq`
+        // executable target is universal too (Apple-mobile builds it as
+        // a stub that's never invoked).
+        .library(name: "JqKit", targets: ["JqKit"]),
+        .library(name: "JqCommand", targets: ["JqCommand"]),
+        .executable(name: "jq", targets: ["jq"]),
+
         // GitHub umbrella — gh(1) port.
         .library(name: "GitHub", targets: ["GitHub"]),
         .library(name: "GhCommand", targets: ["GhCommand"]),
@@ -512,6 +520,41 @@ let package = Package(
             dependencies: ["Lz4Command", "Lz4Kit"]
         ),
 
+        // MARK: JqKit umbrella
+        // Pure-Swift jq engine ported from SwiftBash. Recursive-descent
+        // parser + evaluator over Foundation's `JSONSerialization`, no
+        // system C dependency — the same code runs on every platform we
+        // ship to (macOS / iOS / tvOS / watchOS / visionOS / Linux /
+        // Windows / Android), so no platform gating is needed at the
+        // module level. The `jq` executable target compiles everywhere
+        // for the same reason; on Apple-mobile it builds as a never-
+        // invoked binary, matching how we treat the rest of our CLIs.
+        .target(
+            name: "JqKit",
+            path: "Sources/JqKit/Lib"
+        ),
+        .target(
+            name: "JqCommand",
+            dependencies: [
+                "JqKit",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            path: "Sources/JqKit/JqCommand"
+        ),
+        .executableTarget(
+            name: "jq",
+            dependencies: ["JqCommand"],
+            path: "Sources/JqKit/jq"
+        ),
+        .testTarget(
+            name: "JqKitTests",
+            dependencies: ["JqKit"]
+        ),
+        .testTarget(
+            name: "JqTests",
+            dependencies: ["JqCommand", "JqKit"]
+        ),
+
         // MARK: GitHub umbrella
         .target(
             name: "GitHub",
@@ -532,6 +575,7 @@ let package = Package(
             dependencies: [
                 "GitHub",
                 "ForgeKit",
+                "JqKit",
                 "Lz4Kit",
                 "SwiftGit",
                 "TarKit",
@@ -550,7 +594,7 @@ let package = Package(
             name: "GitHubTests",
             dependencies: [
                 "GitHub", "GhCommand", "ForgeKit",
-                "Lz4Kit", "TarKit", "XzKit", "ZipKit",
+                "JqKit", "Lz4Kit", "TarKit", "XzKit", "ZipKit",
             ],
             resources: [
                 .copy("Fixtures"),
@@ -573,6 +617,7 @@ let package = Package(
             dependencies: [
                 "GitLab",
                 "ForgeKit",
+                "JqKit",
                 "SwiftGit",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],

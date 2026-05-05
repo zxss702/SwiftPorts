@@ -31,4 +31,11 @@ public struct MinimalRepository: Codable, Sendable, Identifiable {
     public let archived: Bool?
     public let disabled: Bool?
     public let license: License?
+    public let size: Int?
+    public let hasIssues: Bool?
+    public let hasProjects: Bool?
+    public let hasWiki: Bool?
+    public let hasPages: Bool?
+    public let hasDownloads: Bool?
+    public let hasDiscussions: Bool?
 }

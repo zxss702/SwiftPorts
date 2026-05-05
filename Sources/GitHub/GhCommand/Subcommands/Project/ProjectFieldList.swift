@@ -19,8 +19,9 @@ struct ProjectFieldListCommand: AsyncParsableCommand {
 
     @Option(name: [.short, .customLong("limit")]) var limit: Int = 100
 
-    @Flag(name: .long, help: "Print as JSON array.")
-    var json: Bool = false
+    @Option(name: .customLong("format"),
+            help: "Output format: {json}.")
+    var format: ProjectFormat?
 
     func run() async throws {
         let gql = try await CommandContext.graphQLClient()
@@ -64,8 +65,18 @@ struct ProjectFieldListCommand: AsyncParsableCommand {
             connection = p.fields
         }
 
-        if json {
-            print(try CodableOutput.prettyJSON(connection.nodes))
+        if format == .json {
+            let payload: [String: Any] = [
+                "fields": connection.nodes.map { f -> [String: Any] in
+                    [
+                        "id": f.id,
+                        "name": f.name,
+                        "type": f.typename,
+                    ]
+                },
+                "totalCount": connection.totalCount,
+            ]
+            print(try ProjectJSONOutput.render(payload))
             return
         }
         if connection.nodes.isEmpty {

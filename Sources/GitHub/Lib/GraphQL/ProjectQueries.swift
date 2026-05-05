@@ -14,7 +14,10 @@ public enum ProjectQueries {
               totalCount
               nodes {
                 id, number, title, shortDescription, url,
-                closed, public, readme, createdAt, updatedAt
+                closed, public, readme, createdAt, updatedAt,
+                owner { __typename ... on User { login } ... on Organization { login } },
+                fields(first: 0) { totalCount },
+                items(first: 0) { totalCount }
               }
             }
           }
@@ -29,7 +32,10 @@ public enum ProjectQueries {
               totalCount
               nodes {
                 id, number, title, shortDescription, url,
-                closed, public, readme, createdAt, updatedAt
+                closed, public, readme, createdAt, updatedAt,
+                owner { __typename ... on User { login } ... on Organization { login } },
+                fields(first: 0) { totalCount },
+                items(first: 0) { totalCount }
               }
             }
           }
@@ -44,7 +50,10 @@ public enum ProjectQueries {
               totalCount
               nodes {
                 id, number, title, shortDescription, url,
-                closed, public, readme, createdAt, updatedAt
+                closed, public, readme, createdAt, updatedAt,
+                owner { __typename ... on User { login } ... on Organization { login } },
+                fields(first: 0) { totalCount },
+                items(first: 0) { totalCount }
               }
             }
           }
@@ -59,6 +68,8 @@ public enum ProjectQueries {
             projectV2(number: $number) {
               id, number, title, shortDescription, url,
               closed, public, readme, createdAt, updatedAt,
+              owner { __typename ... on User { login } ... on Organization { login } },
+              fields(first: 0) { totalCount },
               items(first: 0) { totalCount }
             }
           }
@@ -71,6 +82,8 @@ public enum ProjectQueries {
             projectV2(number: $number) {
               id, number, title, shortDescription, url,
               closed, public, readme, createdAt, updatedAt,
+              owner { __typename ... on User { login } ... on Organization { login } },
+              fields(first: 0) { totalCount },
               items(first: 0) { totalCount }
             }
           }
@@ -83,6 +96,8 @@ public enum ProjectQueries {
             projectV2(number: $number) {
               id, number, title, shortDescription, url,
               closed, public, readme, createdAt, updatedAt,
+              owner { __typename ... on User { login } ... on Organization { login } },
+              fields(first: 0) { totalCount },
               items(first: 0) { totalCount }
             }
           }
@@ -212,11 +227,9 @@ public struct ProjectV2WithItemCount: Codable, Sendable, Identifiable {
     public let readme: String?
     public let createdAt: Date
     public let updatedAt: Date
-    public let items: ItemCountContainer
-
-    public struct ItemCountContainer: Codable, Sendable {
-        public let totalCount: Int
-    }
+    public let owner: ProjectV2Owner?
+    public let fields: ProjectV2CountContainer?
+    public let items: ProjectV2CountContainer
 }
 
 public struct ViewerProjectItemsResponse: Codable, Sendable {

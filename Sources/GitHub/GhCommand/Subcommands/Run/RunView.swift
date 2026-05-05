@@ -27,8 +27,9 @@ struct RunView: AsyncParsableCommand {
     @Argument(help: "Run ID.")
     var id: Int
 
-    @Flag(name: .long, help: "Print the JSON response body.")
-    var json: Bool = false
+    @Option(name: .long,
+            help: "Output JSON with the specified fields (comma-separated).")
+    var json: String?
 
     @Flag(name: .long, help: "List each job in the run.")
     var jobs: Bool = false
@@ -55,7 +56,9 @@ struct RunView: AsyncParsableCommand {
         if let jobId {
             let job: WorkflowJob = try await client.get(
                 "repos/\(target.slug)/actions/jobs/\(jobId)")
-            if json {
+            // The single-job endpoint isn't a `gh` shape; pretty-print
+            // is fine here since this is our own affordance.
+            if json != nil {
                 print(try CodableOutput.prettyJSON(job))
                 return
             }
@@ -75,8 +78,18 @@ struct RunView: AsyncParsableCommand {
             return
         }
 
-        if json {
-            print(try CodableOutput.prettyJSON(run))
+        if let json {
+            let fields = try JSONFieldSelector.parse(raw: json, fieldMap: RunViewFields.map)
+            // Lazy-fetch jobs only if the user requested it.
+            let runWithJobs: RunWithJobs
+            if fields.contains("jobs") {
+                let envelope: WorkflowJobList = try await client.get(
+                    "repos/\(target.slug)/actions/runs/\(id)/jobs")
+                runWithJobs = RunWithJobs(run: run, jobs: envelope.jobs)
+            } else {
+                runWithJobs = RunWithJobs(run: run, jobs: [])
+            }
+            print(try JSONFieldSelector.render(item: runWithJobs, fields: fields, fieldMap: RunViewFields.map))
             if exitStatus { try enforceExit(run.conclusion) }
             return
         }
@@ -181,5 +194,59 @@ struct RunView: AsyncParsableCommand {
         let s = Int(seconds.rounded())
         if s < 60 { return "\(s)s" }
         return "\(s / 60)m\(s % 60)s"
+    }
+}
+
+/// Bundle for `--json` output: `WorkflowRun` plus optionally-fetched jobs.
+struct RunWithJobs {
+    let run: WorkflowRun
+    let jobs: [WorkflowJob]
+}
+
+enum RunViewFields {
+    static let map: [String: @Sendable (RunWithJobs) -> Any?] = [
+        "attempt":            { $0.run.runAttempt },
+        "conclusion":         { $0.run.conclusion },
+        "createdAt":          { JSONFieldSelector.iso8601($0.run.createdAt) },
+        "databaseId":         { $0.run.id },
+        "displayTitle":       { $0.run.displayTitle },
+        "event":              { $0.run.event },
+        "headBranch":         { $0.run.headBranch },
+        "headSha":            { $0.run.headSha },
+        "jobs":               { $0.jobs.map(jobDict) },
+        "name":               { $0.run.name },
+        "number":             { $0.run.runNumber },
+        "startedAt":          { $0.run.runStartedAt.map(JSONFieldSelector.iso8601) },
+        "status":             { $0.run.status },
+        "updatedAt":          { JSONFieldSelector.iso8601($0.run.updatedAt) },
+        "url":                { $0.run.htmlUrl.absoluteString },
+        "workflowDatabaseId": { $0.run.workflowId },
+        "workflowName":       { $0.run.name },
+    ]
+
+    /// Per-job shape from `gh run view --json jobs`.
+    static func jobDict(_ job: WorkflowJob) -> [String: Any] {
+        [
+            "completedAt": job.completedAt.map(JSONFieldSelector.iso8601) ?? NSNull(),
+            "conclusion":  job.conclusion ?? "",
+            "databaseId":  job.id,
+            "name":        job.name,
+            "startedAt":   job.startedAt.map(JSONFieldSelector.iso8601) ?? NSNull(),
+            "status":      job.status,
+            "steps":       (job.steps ?? []).map(stepDict),
+            "url":         job.htmlUrl?.absoluteString ?? "",
+        ]
+    }
+
+    /// Per-step shape from `gh run view --json jobs[].steps`.
+    static func stepDict(_ step: WorkflowJobStep) -> [String: Any] {
+        [
+            "completedAt": step.completedAt.map(JSONFieldSelector.iso8601) ?? NSNull(),
+            "conclusion":  step.conclusion ?? "",
+            "name":        step.name,
+            "number":      step.number,
+            "startedAt":   step.startedAt.map(JSONFieldSelector.iso8601) ?? NSNull(),
+            "status":      step.status,
+        ]
     }
 }

@@ -2,6 +2,7 @@ import ArgumentParser
 import Foundation
 import HTTPTypes
 import GitLab
+import JqKit
 
 struct ApiCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -12,9 +13,14 @@ struct ApiCommand: AsyncParsableCommand {
 
         Without -X, GET is used. Field flags switch to POST automatically.
 
+        --jq <filter> runs the response body through an in-process jq
+        engine (JqKit) and prints the filter result instead of the raw
+        JSON response.
+
         Examples:
           glab api projects/group%2Frepo
           glab api -X POST projects/123/issues -f title="Hi" -f body="…"
+          glab api projects/26 --jq '.name'
         """
     )
 
@@ -43,6 +49,10 @@ struct ApiCommand: AsyncParsableCommand {
           help: "Include HTTP response status line and headers.")
     var includeHeaders: Bool = false
 
+    @Option(name: [.customShort("q"), .customLong("jq")],
+            help: "Run a jq filter over the response body before printing.")
+    var jqFilter: String?
+
     func run() async throws {
         let client = try await CommandContext.apiClient(host: hostname)
 
@@ -65,6 +75,17 @@ struct ApiCommand: AsyncParsableCommand {
         }
 
         let isJSON = response.contentType?.contains("json") ?? false
+
+        if let filter = jqFilter, isJSON {
+            do {
+                let lines = try Jq.evalString(filter: filter, on: response.body)
+                for line in lines { print(line) }
+            } catch let e as JqError {
+                throw ValidationError("jq: \(e.message)")
+            }
+            return
+        }
+
         if isJSON {
             print(JSONPretty.string(from: response.body))
         } else {

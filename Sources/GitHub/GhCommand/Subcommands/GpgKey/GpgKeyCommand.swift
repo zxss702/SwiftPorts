@@ -17,15 +17,9 @@ struct GpgKeyList: AsyncParsableCommand {
         abstract: "List your GPG keys."
     )
 
-    @Flag(name: .long) var json: Bool = false
-
     func run() async throws {
         let client = try await CommandContext.apiClient()
         let keys: [GPGKey] = try await client.get("user/gpg_keys")
-        if json {
-            print(try CodableOutput.prettyJSON(keys))
-            return
-        }
         if keys.isEmpty { print("No GPG keys."); return }
         for k in keys {
             let when = k.createdAt.map(ISO8601DateFormatter().string(from:)) ?? "?"

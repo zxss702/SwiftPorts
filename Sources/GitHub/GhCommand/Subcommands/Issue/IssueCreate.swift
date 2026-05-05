@@ -33,9 +33,6 @@ struct IssueCreate: AsyncParsableCommand {
             help: "Milestone number to assign.")
     var milestone: Int?
 
-    @Flag(name: .long, help: "Print the JSON response body.")
-    var json: Bool = false
-
     func run() async throws {
         let target = try await RepositoryResolver.resolve(flag: repo)
         let resolvedBody = try resolveBody()
@@ -52,10 +49,6 @@ struct IssueCreate: AsyncParsableCommand {
             path: "repos/\(target.slug)/issues",
             body: request)
 
-        if json {
-            print(try CodableOutput.prettyJSON(issue))
-            return
-        }
         print("Created issue #\(issue.number): \(issue.title)")
         print(issue.htmlUrl.absoluteString)
     }

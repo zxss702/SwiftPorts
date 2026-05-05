@@ -11,13 +11,15 @@ import Testing
         let cmd = try RepoView.parse(["some/repo"])
         #expect(cmd.repository?.owner == "some")
         #expect(cmd.repository?.name == "repo")
-        #expect(cmd.json == false)
+        #expect(cmd.json == nil)
     }
 
     @Test func parsesJSONFlag() throws {
-        let cmd = try RepoView.parse(["cli/cli", "--json"])
+        // `--json` is now a value-taking option (matches upstream gh's
+        // field-selector form). Test passes a fields list.
+        let cmd = try RepoView.parse(["cli/cli", "--json", "id,name"])
         #expect(cmd.repository?.slug == "cli/cli")
-        #expect(cmd.json == true)
+        #expect(cmd.json == "id,name")
     }
 
     @Test func acceptsNoArgsBecauseRepoIsOptional() throws {

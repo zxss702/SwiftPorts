@@ -16,7 +16,7 @@ struct IssueList: AsyncParsableCommand {
             help: "Filter by state.")
     var state: IssueListState = .open
 
-    @Option(name: [.short, .customLong("limit")],
+    @Option(name: [.customShort("L"), .customLong("limit")],
             help: "Maximum number of issues to fetch.")
     var limit: Int = 30
 
@@ -29,11 +29,32 @@ struct IssueList: AsyncParsableCommand {
             help: "Filter by author login.")
     var author: String?
 
-    @Flag(name: .long, help: "Print as JSON array.")
-    var json: Bool = false
+    @Option(name: .long,
+            help: "Output JSON with the specified fields (comma-separated).")
+    var json: String?
 
     func run() async throws {
         let target = try await RepositoryResolver.resolve(flag: repo)
+
+        if let json {
+            let fields = try JSONFieldSelector.parse(raw: json, fieldMap: IssueFields.map)
+            let gql = try await CommandContext.graphQLClient()
+            var variables: [String: GraphQLValue] = [
+                "owner": .string(target.owner),
+                "name":  .string(target.name),
+                "first": .int(min(limit, 100)),
+                "states": graphqlStates(),
+            ]
+            if !labels.isEmpty {
+                variables["labels"] = .array(labels.map(GraphQLValue.string))
+            }
+            let response: IssueListResponse = try await gql.query(
+                IssueQueries.list(), variables: variables)
+            let issues = Array((response.repository?.issues.nodes ?? []).prefix(limit))
+            print(try JSONFieldSelector.render(items: issues, fields: fields, fieldMap: IssueFields.map))
+            return
+        }
+
         let client = try await CommandContext.apiClient()
         let perPage = min(limit, 100)
         var query: [URLQueryItem] = [
@@ -51,16 +72,20 @@ struct IssueList: AsyncParsableCommand {
         let onlyIssues = issues.filter { $0.pullRequest == nil }
         let trimmed = Array(onlyIssues.prefix(limit))
 
-        if json {
-            print(try CodableOutput.prettyJSON(trimmed))
-            return
-        }
         if trimmed.isEmpty {
             print("No issues match.")
             return
         }
         for i in trimmed {
             print("#\(i.number)\t\(i.state.rawValue)\t\(i.title)\t@\(i.user.login)")
+        }
+    }
+
+    private func graphqlStates() -> GraphQLValue {
+        switch state {
+        case .open:   return .array([.string("OPEN")])
+        case .closed: return .array([.string("CLOSED")])
+        case .all:    return .array([.string("OPEN"), .string("CLOSED")])
         }
     }
 }

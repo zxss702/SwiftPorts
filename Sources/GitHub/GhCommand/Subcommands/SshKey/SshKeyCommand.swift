@@ -17,15 +17,9 @@ struct SshKeyList: AsyncParsableCommand {
         abstract: "List your SSH keys."
     )
 
-    @Flag(name: .long) var json: Bool = false
-
     func run() async throws {
         let client = try await CommandContext.apiClient()
         let keys: [SSHKey] = try await client.get("user/keys")
-        if json {
-            print(try CodableOutput.prettyJSON(keys))
-            return
-        }
         if keys.isEmpty { print("No SSH keys."); return }
         for k in keys {
             let when = k.createdAt.map(ISO8601DateFormatter().string(from:)) ?? "?"

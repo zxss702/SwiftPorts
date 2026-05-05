@@ -20,8 +20,9 @@ struct ProjectView: AsyncParsableCommand {
           help: "Treat OWNER as an organization (otherwise tries user).")
     var asOrg: Bool = false
 
-    @Flag(name: .long, help: "Print the JSON response body.")
-    var json: Bool = false
+    @Option(name: .customLong("format"),
+            help: "Output format: {json}.")
+    var format: ProjectFormat?
 
     func run() async throws {
         let client = try await CommandContext.graphQLClient()
@@ -57,8 +58,8 @@ struct ProjectView: AsyncParsableCommand {
             project = p
         }
 
-        if json {
-            print(try CodableOutput.prettyJSON(project))
+        if format == .json {
+            print(try ProjectJSONOutput.render(ProjectJSONOutput.project(project)))
             return
         }
         print("\(ANSI.bold("Project #\(project.number)")): \(ANSI.bold(project.title))")

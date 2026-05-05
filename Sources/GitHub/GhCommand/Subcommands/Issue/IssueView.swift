@@ -16,22 +16,37 @@ struct IssueView: AsyncParsableCommand {
     @Argument(help: "Issue number.")
     var number: Int
 
-    @Flag(name: .long, help: "Print the JSON response body.")
-    var json: Bool = false
+    @Option(name: .long,
+            help: "Output JSON with the specified fields (comma-separated).")
+    var json: String?
 
     @Flag(name: .long, help: "Also fetch and print the issue's comments.")
     var comments: Bool = false
 
     func run() async throws {
         let target = try await RepositoryResolver.resolve(flag: repo)
+
+        if let json {
+            let fields = try JSONFieldSelector.parse(raw: json, fieldMap: IssueFields.map)
+            let gql = try await CommandContext.graphQLClient()
+            let response: IssueViewResponse = try await gql.query(
+                IssueQueries.view,
+                variables: [
+                    "owner":  .string(target.owner),
+                    "name":   .string(target.name),
+                    "number": .int(number),
+                ])
+            guard let issue = response.repository?.issue else {
+                throw ValidationError("No issue #\(number) on \(target.slug).")
+            }
+            print(try JSONFieldSelector.render(item: issue, fields: fields, fieldMap: IssueFields.map))
+            return
+        }
+
         let client = try await CommandContext.apiClient()
         let issue: Issue = try await client.get(
             "repos/\(target.slug)/issues/\(number)")
 
-        if json {
-            print(try CodableOutput.prettyJSON(issue))
-            return
-        }
         print("\(ANSI.bold("#\(issue.number)"))  \(ANSI.bold(issue.title))")
         let stateColor: String = issue.state == .open ? ANSI.green("open") : ANSI.magenta("closed")
         print("state: \(stateColor)  author: @\(issue.user.login)")

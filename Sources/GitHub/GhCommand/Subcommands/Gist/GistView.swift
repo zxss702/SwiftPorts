@@ -15,17 +15,10 @@ struct GistView: AsyncParsableCommand {
             help: "Print just one file from the gist.")
     var filename: String?
 
-    @Flag(name: .long, help: "Print the JSON response body.")
-    var json: Bool = false
-
     func run() async throws {
         let client = try await CommandContext.apiClient()
         let gist: Gist = try await client.get("gists/\(id)")
 
-        if json {
-            print(try CodableOutput.prettyJSON(gist))
-            return
-        }
         if let filename {
             guard let file = gist.files[filename] else {
                 throw ValidationError("Gist has no file '\(filename)'.")

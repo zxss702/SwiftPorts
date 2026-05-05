@@ -20,8 +20,9 @@ struct ProjectList: AsyncParsableCommand {
             help: "Maximum projects to fetch.")
     var limit: Int = 30
 
-    @Flag(name: .long, help: "Print as JSON array.")
-    var json: Bool = false
+    @Option(name: .customLong("format"),
+            help: "Output format: {json}.")
+    var format: ProjectFormat?
 
     func run() async throws {
         let client = try await CommandContext.graphQLClient()
@@ -54,8 +55,12 @@ struct ProjectList: AsyncParsableCommand {
         }
 
         let trimmed = Array(connection.nodes.prefix(limit))
-        if json {
-            print(try CodableOutput.prettyJSON(trimmed))
+        if format == .json {
+            let payload: [String: Any] = [
+                "projects": trimmed.map { ProjectJSONOutput.project($0) },
+                "totalCount": connection.totalCount ?? trimmed.count,
+            ]
+            print(try ProjectJSONOutput.render(payload))
             return
         }
         if trimmed.isEmpty {

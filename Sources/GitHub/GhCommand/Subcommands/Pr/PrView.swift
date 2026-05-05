@@ -16,22 +16,37 @@ struct PrView: AsyncParsableCommand {
     @Argument(help: "PR number.")
     var number: Int
 
-    @Flag(name: .long, help: "Print the JSON response body.")
-    var json: Bool = false
+    @Option(name: .long,
+            help: "Output JSON with the specified fields (comma-separated).")
+    var json: String?
 
     @Flag(name: .long, help: "Also fetch and print the PR's comments.")
     var comments: Bool = false
 
     func run() async throws {
         let target = try await RepositoryResolver.resolve(flag: repo)
+
+        if let json {
+            let fields = try JSONFieldSelector.parse(raw: json, fieldMap: PrFields.map)
+            let gql = try await CommandContext.graphQLClient()
+            let response: PullRequestViewResponse = try await gql.query(
+                PullRequestQueries.view(),
+                variables: [
+                    "owner":  .string(target.owner),
+                    "name":   .string(target.name),
+                    "number": .int(number),
+                ])
+            guard let pr = response.repository?.pullRequest else {
+                throw ValidationError("No PR #\(number) on \(target.slug).")
+            }
+            print(try JSONFieldSelector.render(item: pr, fields: fields, fieldMap: PrFields.map))
+            return
+        }
+
         let client = try await CommandContext.apiClient()
         let pr: PullRequest = try await client.get(
             "repos/\(target.slug)/pulls/\(number)")
 
-        if json {
-            print(try CodableOutput.prettyJSON(pr))
-            return
-        }
         print("\(ANSI.bold("#\(pr.number)"))  \(ANSI.bold(pr.title))")
         let stateColor: String
         if pr.merged == true { stateColor = ANSI.magenta("merged") }

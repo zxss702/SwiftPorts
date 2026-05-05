@@ -36,9 +36,6 @@ struct ReleaseCreate: AsyncParsableCommand {
           help: "Auto-generate release notes from PRs since the last release.")
     var generateNotes: Bool = false
 
-    @Flag(name: .long, help: "Print the JSON response body.")
-    var json: Bool = false
-
     func run() async throws {
         let target = try await RepositoryResolver.resolve(flag: repo)
         let notesValue: String?
@@ -63,10 +60,6 @@ struct ReleaseCreate: AsyncParsableCommand {
             path: "repos/\(target.slug)/releases",
             body: request)
 
-        if json {
-            print(try CodableOutput.prettyJSON(release))
-            return
-        }
         print("Created release \(release.tagName)\(release.draft ? " (draft)" : "")")
         print(release.htmlUrl.absoluteString)
     }

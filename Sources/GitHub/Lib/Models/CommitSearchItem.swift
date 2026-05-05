@@ -18,6 +18,13 @@ public struct CommitDetail: Codable, Sendable {
     public let message: String
     public let author: CommitSignature
     public let committer: CommitSignature
+    public let tree: GitTreeRef?
+    public let commentCount: Int?
+}
+
+public struct GitTreeRef: Codable, Sendable {
+    public let sha: String
+    public let url: URL?
 }
 
 public struct CommitSignature: Codable, Sendable {

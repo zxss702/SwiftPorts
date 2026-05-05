@@ -17,7 +17,6 @@ struct OrgList: AsyncParsableCommand {
     )
 
     @Option(name: [.short, .customLong("limit")]) var limit: Int = 100
-    @Flag(name: .long) var json: Bool = false
 
     func run() async throws {
         let client = try await CommandContext.apiClient()
@@ -30,10 +29,6 @@ struct OrgList: AsyncParsableCommand {
         let orgs: [Org] = try await client.get(
             "user/orgs",
             query: [URLQueryItem(name: "per_page", value: String(min(limit, 100)))])
-        if json {
-            print(try CodableOutput.prettyJSON(orgs))
-            return
-        }
         if orgs.isEmpty { print("Not a member of any organizations."); return }
         for o in orgs.prefix(limit) {
             let desc = o.description ?? ""

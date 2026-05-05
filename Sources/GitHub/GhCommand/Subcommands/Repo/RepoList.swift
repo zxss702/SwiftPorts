@@ -31,10 +31,39 @@ struct RepoList: AsyncParsableCommand {
             help: "Sort: created, updated, pushed, full_name (default).")
     var sort: String?
 
-    @Flag(name: .long, help: "Print as JSON array.")
-    var json: Bool = false
+    @Option(name: .long,
+            help: "Output JSON with the specified fields (comma-separated).")
+    var json: String?
 
     func run() async throws {
+        if let json {
+            let fields = try JSONFieldSelector.parse(raw: json, fieldMap: RepoFields.map)
+            let gql = try await CommandContext.graphQLClient()
+            let nodes: [GraphQLRepository]
+            if let owner {
+                // Try user first; if not found, fall back to organization.
+                let userResponse: UserReposResponse = try await gql.query(
+                    RepositoryViewQueries.userRepos,
+                    variables: ["login": .string(owner), "first": .int(min(limit, 100))])
+                if let userNodes = userResponse.user?.repositories.nodes {
+                    nodes = userNodes
+                } else {
+                    let orgResponse: OrgReposResponse = try await gql.query(
+                        RepositoryViewQueries.orgRepos,
+                        variables: ["login": .string(owner), "first": .int(min(limit, 100))])
+                    nodes = orgResponse.organization?.repositories.nodes ?? []
+                }
+            } else {
+                let response: ViewerReposResponse = try await gql.query(
+                    RepositoryViewQueries.viewerRepos,
+                    variables: ["first": .int(min(limit, 100))])
+                nodes = response.viewer.repositories.nodes
+            }
+            let trimmedNodes = Array(nodes.prefix(limit))
+            print(try JSONFieldSelector.render(items: trimmedNodes, fields: fields, fieldMap: RepoFields.map))
+            return
+        }
+
         let client = try await CommandContext.apiClient()
         var query: [URLQueryItem] = [
             URLQueryItem(name: "per_page", value: String(min(limit, 100))),
@@ -53,10 +82,6 @@ struct RepoList: AsyncParsableCommand {
         let repos: [MinimalRepository] = try await client.get(path, query: query)
         let trimmed = Array(repos.prefix(limit))
 
-        if json {
-            print(try CodableOutput.prettyJSON(trimmed))
-            return
-        }
         if trimmed.isEmpty {
             print("No repositories.")
             return

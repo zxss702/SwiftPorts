@@ -19,4 +19,5 @@ public struct Release: Codable, Sendable, Identifiable {
     public let htmlUrl: URL
     public let assetsUrl: URL
     public let uploadUrl: String  // RFC 6570 URI template
+    public let immutable: Bool?
 }
