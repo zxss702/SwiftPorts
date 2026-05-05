@@ -504,6 +504,13 @@ import Testing
         #expect(cmd.includeHeaders == true)
     }
 
+    @Test func apiParsesJqShortAndLongFlags() throws {
+        let short = try ApiCommand.parse(["projects/26", "-q", ".name"])
+        #expect(short.jqFilter == ".name")
+        let long = try ApiCommand.parse(["projects/26", "--jq", ".path"])
+        #expect(long.jqFilter == ".path")
+    }
+
     // MARK: Label
 
     @Test func labelListLimit() throws {
