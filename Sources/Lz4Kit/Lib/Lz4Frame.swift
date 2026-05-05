@@ -57,11 +57,12 @@ internal enum Lz4Frame {
     /// the way in. The closure gets `(payload, isUncompressed)`
     /// for each block; raw or compressed bytes are passed straight
     /// through so the caller can route them through the platform's
-    /// LZ4 block decoder.
+    /// LZ4 block decoder. Cooperatively cancellable: each block
+    /// boundary checks `Task.isCancelled`.
     static func parseBlocks(
         _ data: Data,
-        body: (Data, Bool) throws -> Void
-    ) throws {
+        body: (Data, Bool) async throws -> Void
+    ) async throws {
         guard data.count >= 7 else {
             throw Lz4KitError.decompressionFailed("frame too short")
         }
@@ -96,6 +97,7 @@ internal enum Lz4Frame {
 
         var i = 7
         while i + 4 <= bytes.count {
+            try Task.checkCancellation()
             let sizeWord = readLE32(bytes, i)
             i += 4
             if sizeWord == 0 {
@@ -117,7 +119,7 @@ internal enum Lz4Frame {
                     "frame truncated mid-block")
             }
             let payload = Data(bytes[i..<(i + payloadSize)])
-            try body(payload, uncompressed)
+            try await body(payload, uncompressed)
             i += payloadSize
             if hasBlockChecksum {
                 guard i + 4 <= bytes.count else {

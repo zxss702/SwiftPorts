@@ -82,7 +82,7 @@ public struct Xz: AsyncParsableCommand {
     public init() {}
 
     public func run() async throws {
-        try XzEngine.run(
+        try await XzEngine.run(
             mode: decompress ? .decompress : .compress,
             stdout: stdout,
             keep: keep,
@@ -126,7 +126,7 @@ public struct Unxz: AsyncParsableCommand {
     public init() {}
 
     public func run() async throws {
-        try XzEngine.run(
+        try await XzEngine.run(
             mode: .decompress,
             stdout: stdout,
             keep: keep,
@@ -155,7 +155,7 @@ public struct Xzcat: AsyncParsableCommand {
     public init() {}
 
     public func run() async throws {
-        try XzEngine.run(
+        try await XzEngine.run(
             mode: .decompress,
             stdout: true,
             keep: true,
@@ -177,19 +177,20 @@ enum XzEngine {
         quiet: Bool,
         verbose: Bool,
         files: [String]
-    ) throws {
+    ) async throws {
         if files.isEmpty || files == ["-"] {
-            try processStdin(mode: mode)
+            try await processStdin(mode: mode)
             return
         }
         for file in files {
+            try Task.checkCancellation()
             if file == "-" {
-                try processStdin(mode: mode)
+                try await processStdin(mode: mode)
                 continue
             }
             let url = URL(fileURLWithPath: file)
             if stdout {
-                try emitFileToStdout(url: url, mode: mode)
+                try await emitFileToStdout(url: url, mode: mode)
                 if verbose {
                     FileHandle.standardError.write(
                         Data("\(file) -> stdout\n".utf8))
@@ -198,10 +199,10 @@ enum XzEngine {
                 let result: URL
                 switch mode {
                 case .compress:
-                    result = try XzKit.Xz.compressFile(
+                    result = try await XzKit.Xz.compressFile(
                         at: url, keepInput: keep, overwrite: force)
                 case .decompress:
-                    result = try XzKit.Xz.decompressFile(
+                    result = try await XzKit.Xz.decompressFile(
                         at: url, keepInput: keep, overwrite: force)
                 }
                 if verbose {
@@ -212,22 +213,22 @@ enum XzEngine {
         }
     }
 
-    private static func processStdin(mode: XzMode) throws {
+    private static func processStdin(mode: XzMode) async throws {
         let input = FileHandle.standardInput.readDataToEndOfFile()
         let output: Data
         switch mode {
-        case .compress:   output = try XzKit.Xz.compress(input)
-        case .decompress: output = try XzKit.Xz.decompress(input)
+        case .compress:   output = try await XzKit.Xz.compress(input)
+        case .decompress: output = try await XzKit.Xz.decompress(input)
         }
         FileHandle.standardOutput.write(output)
     }
 
-    private static func emitFileToStdout(url: URL, mode: XzMode) throws {
+    private static func emitFileToStdout(url: URL, mode: XzMode) async throws {
         let bytes = try Data(contentsOf: url)
         let output: Data
         switch mode {
-        case .compress:   output = try XzKit.Xz.compress(bytes)
-        case .decompress: output = try XzKit.Xz.decompress(bytes)
+        case .compress:   output = try await XzKit.Xz.compress(bytes)
+        case .decompress: output = try await XzKit.Xz.decompress(bytes)
         }
         FileHandle.standardOutput.write(output)
     }

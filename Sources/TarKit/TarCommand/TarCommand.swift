@@ -84,15 +84,15 @@ public struct TarCommand: AsyncParsableCommand {
         }
 
         if create {
-            try runCreate(file: file)
+            try await runCreate(file: file)
         } else if extract {
-            try runExtract(file: file)
+            try await runExtract(file: file)
         } else {
-            try runList(file: file)
+            try await runList(file: file)
         }
     }
 
-    private func runCreate(file: String) throws {
+    private func runCreate(file: String) async throws {
         guard !args.isEmpty else {
             throw ValidationError(
                 "Provide at least one file or directory to add.")
@@ -114,7 +114,7 @@ public struct TarCommand: AsyncParsableCommand {
             compression: compression,
             recursive: true,
             followSymlinks: false)
-        let written = try TarKit.Archive.create(
+        let written = try await TarKit.Archive.create(
             at: url, paths: inputs, options: opts)
         if verbose {
             for e in written {
@@ -124,7 +124,7 @@ public struct TarCommand: AsyncParsableCommand {
         }
     }
 
-    private func runExtract(file: String) throws {
+    private func runExtract(file: String) async throws {
         let archiveURL = URL(fileURLWithPath: file)
         let dest: URL
         if let dir = changeDir {
@@ -137,7 +137,7 @@ public struct TarCommand: AsyncParsableCommand {
             destination: dest,
             overwrite: true,
             stripComponents: stripComponents)
-        let extracted = try TarKit.Archive.extract(
+        let extracted = try await TarKit.Archive.extract(
             from: archiveURL, options: opts)
         if verbose {
             for e in extracted {
@@ -147,9 +147,9 @@ public struct TarCommand: AsyncParsableCommand {
         }
     }
 
-    private func runList(file: String) throws {
+    private func runList(file: String) async throws {
         let url = URL(fileURLWithPath: file)
-        let entries = try TarKit.Archive.list(at: url)
+        let entries = try await TarKit.Archive.list(at: url)
         for e in entries {
             if verbose {
                 let kindChar: String

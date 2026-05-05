@@ -25,8 +25,9 @@ public enum Xz {
 
     // MARK: Data
 
-    /// Compress arbitrary bytes into an xz stream.
-    public static func compress(_ data: Data) throws -> Data {
+    /// Compress arbitrary bytes into an xz stream. Cooperatively
+    /// cancellable: each output chunk checks `Task.isCancelled`.
+    public static func compress(_ data: Data) async throws -> Data {
         #if canImport(Compression)
         return try appleCode(data, operation: COMPRESSION_STREAM_ENCODE,
                              algorithm: COMPRESSION_LZMA,
@@ -47,7 +48,9 @@ public enum Xz {
     }
 
     /// Decompress an xz / lzma stream back to its raw bytes.
-    public static func decompress(_ data: Data) throws -> Data {
+    /// Cooperatively cancellable: each output chunk checks
+    /// `Task.isCancelled`.
+    public static func decompress(_ data: Data) async throws -> Data {
         #if canImport(Compression)
         return try appleCode(data, operation: COMPRESSION_STREAM_DECODE,
                              algorithm: COMPRESSION_LZMA,
@@ -116,6 +119,7 @@ public enum Xz {
             var ended = false
             var madeProgress = true
             while !ended && madeProgress {
+                try Task.checkCancellation()
                 let inSizeBefore = stream.src_size
                 try outputBuffer.withUnsafeMutableBufferPointer { outBuf in
                     stream.dst_ptr = outBuf.baseAddress!
@@ -171,6 +175,7 @@ public enum Xz {
 
             var done = false
             while !done {
+                try Task.checkCancellation()
                 try outputBuffer.withUnsafeMutableBufferPointer { outPtr in
                     stream.next_out = outPtr.baseAddress
                     stream.avail_out = chunkSize
@@ -207,14 +212,14 @@ public enum Xz {
         to destination: URL? = nil,
         keepInput: Bool = false,
         overwrite: Bool = false
-    ) throws -> URL {
+    ) async throws -> URL {
         let target = destination ?? URL(fileURLWithPath: source.path + ".xz")
         if FileManager.default.fileExists(atPath: target.path) && !overwrite {
             throw XzKitError.compressionFailed(
                 "'\(target.path)' already exists; pass overwrite: true to replace")
         }
         let bytes = try Data(contentsOf: source)
-        let compressed = try compress(bytes)
+        let compressed = try await compress(bytes)
         try compressed.write(to: target)
         if !keepInput { try? FileManager.default.removeItem(at: source) }
         return target
@@ -228,7 +233,7 @@ public enum Xz {
         to destination: URL? = nil,
         keepInput: Bool = false,
         overwrite: Bool = false
-    ) throws -> URL {
+    ) async throws -> URL {
         let target: URL
         if let destination {
             target = destination
@@ -240,7 +245,7 @@ public enum Xz {
                 "'\(target.path)' already exists; pass overwrite: true to replace")
         }
         let bytes = try Data(contentsOf: source)
-        let decompressed = try decompress(bytes)
+        let decompressed = try await decompress(bytes)
         try decompressed.write(to: target)
         if !keepInput { try? FileManager.default.removeItem(at: source) }
         return target

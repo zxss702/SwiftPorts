@@ -82,7 +82,7 @@ public struct Lz4: AsyncParsableCommand {
     public init() {}
 
     public func run() async throws {
-        try Lz4Engine.run(
+        try await Lz4Engine.run(
             mode: decompress ? .decompress : .compress,
             stdout: stdout,
             keep: keep,
@@ -126,7 +126,7 @@ public struct Unlz4: AsyncParsableCommand {
     public init() {}
 
     public func run() async throws {
-        try Lz4Engine.run(
+        try await Lz4Engine.run(
             mode: .decompress,
             stdout: stdout,
             keep: keep,
@@ -155,7 +155,7 @@ public struct Lz4cat: AsyncParsableCommand {
     public init() {}
 
     public func run() async throws {
-        try Lz4Engine.run(
+        try await Lz4Engine.run(
             mode: .decompress,
             stdout: true,
             keep: true,
@@ -177,19 +177,20 @@ enum Lz4Engine {
         quiet: Bool,
         verbose: Bool,
         files: [String]
-    ) throws {
+    ) async throws {
         if files.isEmpty || files == ["-"] {
-            try processStdin(mode: mode)
+            try await processStdin(mode: mode)
             return
         }
         for file in files {
+            try Task.checkCancellation()
             if file == "-" {
-                try processStdin(mode: mode)
+                try await processStdin(mode: mode)
                 continue
             }
             let url = URL(fileURLWithPath: file)
             if stdout {
-                try emitFileToStdout(url: url, mode: mode)
+                try await emitFileToStdout(url: url, mode: mode)
                 if verbose {
                     FileHandle.standardError.write(
                         Data("\(file) -> stdout\n".utf8))
@@ -198,10 +199,10 @@ enum Lz4Engine {
                 let result: URL
                 switch mode {
                 case .compress:
-                    result = try Lz4Kit.Lz4.compressFile(
+                    result = try await Lz4Kit.Lz4.compressFile(
                         at: url, keepInput: keep, overwrite: force)
                 case .decompress:
-                    result = try Lz4Kit.Lz4.decompressFile(
+                    result = try await Lz4Kit.Lz4.decompressFile(
                         at: url, keepInput: keep, overwrite: force)
                 }
                 if verbose {
@@ -212,22 +213,22 @@ enum Lz4Engine {
         }
     }
 
-    private static func processStdin(mode: Lz4Mode) throws {
+    private static func processStdin(mode: Lz4Mode) async throws {
         let input = FileHandle.standardInput.readDataToEndOfFile()
         let output: Data
         switch mode {
-        case .compress:   output = try Lz4Kit.Lz4.compress(input)
-        case .decompress: output = try Lz4Kit.Lz4.decompress(input)
+        case .compress:   output = try await Lz4Kit.Lz4.compress(input)
+        case .decompress: output = try await Lz4Kit.Lz4.decompress(input)
         }
         FileHandle.standardOutput.write(output)
     }
 
-    private static func emitFileToStdout(url: URL, mode: Lz4Mode) throws {
+    private static func emitFileToStdout(url: URL, mode: Lz4Mode) async throws {
         let bytes = try Data(contentsOf: url)
         let output: Data
         switch mode {
-        case .compress:   output = try Lz4Kit.Lz4.compress(bytes)
-        case .decompress: output = try Lz4Kit.Lz4.decompress(bytes)
+        case .compress:   output = try await Lz4Kit.Lz4.compress(bytes)
+        case .decompress: output = try await Lz4Kit.Lz4.decompress(bytes)
         }
         FileHandle.standardOutput.write(output)
     }

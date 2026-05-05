@@ -74,35 +74,35 @@ public struct UnzipCommand: AsyncParsableCommand {
         if archive == "-" {
             let data = FileHandle.standardInput.readDataToEndOfFile()
             if list {
-                try doList(source: .data(data), includes: includes, excludes: excludes)
+                try await doList(source: .data(data), includes: includes, excludes: excludes)
                 return
             }
             if test {
-                try doTest(source: .data(data))
+                try await doTest(source: .data(data))
                 return
             }
             if pipe {
-                try doPipe(source: .data(data), includes: includes, excludes: excludes)
+                try await doPipe(source: .data(data), includes: includes, excludes: excludes)
                 return
             }
-            try doExtract(source: .data(data), includes: includes, excludes: excludes)
+            try await doExtract(source: .data(data), includes: includes, excludes: excludes)
             return
         }
 
         let archiveURL = URL(fileURLWithPath: archive)
         if list {
-            try doList(source: .url(archiveURL), includes: includes, excludes: excludes)
+            try await doList(source: .url(archiveURL), includes: includes, excludes: excludes)
             return
         }
         if test {
-            try doTest(source: .url(archiveURL))
+            try await doTest(source: .url(archiveURL))
             return
         }
         if pipe {
-            try doPipe(source: .url(archiveURL), includes: includes, excludes: excludes)
+            try await doPipe(source: .url(archiveURL), includes: includes, excludes: excludes)
             return
         }
-        try doExtract(source: .url(archiveURL), includes: includes, excludes: excludes)
+        try await doExtract(source: .url(archiveURL), includes: includes, excludes: excludes)
     }
 
     /// Whether the archive came from a path on disk or a stdin slurp.
@@ -116,11 +116,11 @@ public struct UnzipCommand: AsyncParsableCommand {
 
     private func doList(
         source: Source, includes: [String], excludes: [String]
-    ) throws {
+    ) async throws {
         let entries: [Entry]
         switch source {
-        case .url(let url):  entries = try Archive.list(at: url)
-        case .data(let d):   entries = try Archive.list(data: d)
+        case .url(let url):  entries = try await Archive.list(at: url)
+        case .data(let d):   entries = try await Archive.list(data: d)
         }
         let filtered = entries.filter { entry in
             include(path: entry.path, includes: includes, excludes: excludes)
@@ -154,15 +154,15 @@ public struct UnzipCommand: AsyncParsableCommand {
                      filtered.count == 1 ? "" : "s"))
     }
 
-    private func doTest(source: Source) throws {
+    private func doTest(source: Source) async throws {
         let entries: [Entry]
         let label: String
         switch source {
         case .url(let url):
-            entries = try Archive.test(at: url)
+            entries = try await Archive.test(at: url)
             label = url.lastPathComponent
         case .data(let d):
-            entries = try Archive.test(data: d)
+            entries = try await Archive.test(data: d)
             label = "<stdin>"
         }
         if !quiet {
@@ -175,22 +175,24 @@ public struct UnzipCommand: AsyncParsableCommand {
 
     private func doPipe(
         source: Source, includes: [String], excludes: [String]
-    ) throws {
+    ) async throws {
         switch source {
         case .url(let url):
-            let entries = try Archive.list(at: url)
+            let entries = try await Archive.list(at: url)
             for e in entries where e.kind == .file
                 && include(path: e.path, includes: includes, excludes: excludes)
             {
-                let data = try Archive.read(entry: e.path, from: url)
+                try Task.checkCancellation()
+                let data = try await Archive.read(entry: e.path, from: url)
                 FileHandle.standardOutput.write(data)
             }
         case .data(let d):
-            let entries = try Archive.list(data: d)
+            let entries = try await Archive.list(data: d)
             for e in entries where e.kind == .file
                 && include(path: e.path, includes: includes, excludes: excludes)
             {
-                let bytes = try Archive.read(entry: e.path, data: d)
+                try Task.checkCancellation()
+                let bytes = try await Archive.read(entry: e.path, data: d)
                 FileHandle.standardOutput.write(bytes)
             }
         }
@@ -198,7 +200,7 @@ public struct UnzipCommand: AsyncParsableCommand {
 
     private func doExtract(
         source: Source, includes: [String], excludes: [String]
-    ) throws {
+    ) async throws {
         if overwrite && neverOverwrite {
             throw ValidationError("Specify -o (overwrite) OR -n (never), not both.")
         }
@@ -220,10 +222,10 @@ public struct UnzipCommand: AsyncParsableCommand {
         let label: String
         switch source {
         case .url(let url):
-            written = try Archive.extract(from: url, options: options)
+            written = try await Archive.extract(from: url, options: options)
             label = url.lastPathComponent
         case .data(let d):
-            written = try Archive.extract(from: d, options: options)
+            written = try await Archive.extract(from: d, options: options)
             label = "<stdin>"
         }
         if !quiet {

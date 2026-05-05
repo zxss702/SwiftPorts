@@ -13,7 +13,7 @@ public enum ZipExtractor {
     /// and write its bytes to stdout, prefixed with a
     /// `=== <path> ===` header. Used by `gh run view --log`.
     public static func printConcatenatedTextEntries(zipData: Data) async throws {
-        try Archive.streamEntries(
+        try await Archive.streamEntries(
             from: zipData,
             to: FileHandle.standardOutput,
             printHeaders: true)
@@ -26,7 +26,7 @@ public enum ZipExtractor {
     public static func extract(
         zipData: Data, into destination: URL
     ) async throws {
-        try Archive.extract(
+        try await Archive.extract(
             from: zipData,
             options: ExtractOptions(destination: destination))
     }

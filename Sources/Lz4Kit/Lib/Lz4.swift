@@ -28,11 +28,13 @@ public enum Lz4 {
     /// Compress arbitrary bytes into an `.lz4` v1.6 frame. Splits
     /// input into 64 KB blocks (the spec's smallest tier); each
     /// block is independent, no checksums, so the frame is the
-    /// minimum-overhead variant the spec allows.
-    public static func compress(_ data: Data) throws -> Data {
+    /// minimum-overhead variant the spec allows. Cooperatively
+    /// cancellable: each block boundary checks `Task.isCancelled`.
+    public static func compress(_ data: Data) async throws -> Data {
         var blocks: [Lz4Frame.Block] = []
         var offset = 0
         while offset < data.count {
+            try Task.checkCancellation()
             let end = Swift.min(offset + Lz4Frame.blockSize, data.count)
             let chunk = Data(data[offset..<end])
             let compressed = try compressBlock(chunk)
@@ -49,13 +51,15 @@ public enum Lz4 {
     }
 
     /// Decompress an `.lz4` v1.6 frame back to its raw bytes.
-    public static func decompress(_ data: Data) throws -> Data {
+    /// Cooperatively cancellable: each block boundary checks
+    /// `Task.isCancelled`.
+    public static func decompress(_ data: Data) async throws -> Data {
         guard !data.isEmpty else {
             throw Lz4KitError.decompressionFailed(
                 "incomplete lz4 stream (empty input)")
         }
         var output = Data()
-        try Lz4Frame.parseBlocks(data) { blockData, uncompressed in
+        try await Lz4Frame.parseBlocks(data) { blockData, uncompressed in
             if uncompressed {
                 output.append(blockData)
             } else {
@@ -77,14 +81,14 @@ public enum Lz4 {
         to destination: URL? = nil,
         keepInput: Bool = false,
         overwrite: Bool = false
-    ) throws -> URL {
+    ) async throws -> URL {
         let target = destination ?? URL(fileURLWithPath: source.path + ".lz4")
         if FileManager.default.fileExists(atPath: target.path) && !overwrite {
             throw Lz4KitError.compressionFailed(
                 "'\(target.path)' already exists; pass overwrite: true to replace")
         }
         let bytes = try Data(contentsOf: source)
-        let compressed = try compress(bytes)
+        let compressed = try await compress(bytes)
         try compressed.write(to: target)
         if !keepInput { try? FileManager.default.removeItem(at: source) }
         return target
@@ -98,7 +102,7 @@ public enum Lz4 {
         to destination: URL? = nil,
         keepInput: Bool = false,
         overwrite: Bool = false
-    ) throws -> URL {
+    ) async throws -> URL {
         let target: URL
         if let destination {
             target = destination
@@ -110,7 +114,7 @@ public enum Lz4 {
                 "'\(target.path)' already exists; pass overwrite: true to replace")
         }
         let bytes = try Data(contentsOf: source)
-        let decompressed = try decompress(bytes)
+        let decompressed = try await decompress(bytes)
         try decompressed.write(to: target)
         if !keepInput { try? FileManager.default.removeItem(at: source) }
         return target

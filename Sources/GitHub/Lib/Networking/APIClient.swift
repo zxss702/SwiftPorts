@@ -56,6 +56,7 @@ public actor APIClient {
         var pages = 0
         var collected: [T] = []
         while let next = url, pages < maxPages {
+            try Task.checkCancellation()
             let response = try await perform(method: .get, url: next, body: nil)
             let page: [T] = try decode([T].self, from: response)
             collected.append(contentsOf: page)

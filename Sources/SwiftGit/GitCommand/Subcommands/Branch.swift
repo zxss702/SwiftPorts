@@ -100,7 +100,7 @@ struct Branch: AsyncParsableCommand {
 
         // Default: list local branches with `*` marker.
         let current = try await client.currentBranch()
-        let names = (try? client.localBranches()) ?? []
+        let names = try client.localBranches()
         for name in names.sorted() {
             print(name == current ? "* \(name)" : "  \(name)")
         }

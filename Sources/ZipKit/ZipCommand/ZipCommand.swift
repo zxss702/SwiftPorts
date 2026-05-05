@@ -81,7 +81,7 @@ public struct ZipCommand: AsyncParsableCommand {
             includeDirectories: !noDirEntries)
 
         let outputURL = URL(fileURLWithPath: archive)
-        let written = try ZipKit.Archive.create(
+        let written = try await ZipKit.Archive.create(
             at: outputURL, paths: inputURLs, options: options)
 
         if !quiet {

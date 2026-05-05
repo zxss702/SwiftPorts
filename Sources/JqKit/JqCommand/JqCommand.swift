@@ -252,6 +252,7 @@ public enum JqExecutable {
             } else if slurp {
                 var slurped: [JqValue] = []
                 for c in inputContents {
+                    try Task.checkCancellation()
                     let trimmed = c.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty {
                         slurped.append(contentsOf: try JqJSON.parseStream(c))
@@ -260,6 +261,7 @@ public enum JqExecutable {
                 values = [.array(slurped)]
             } else {
                 for c in inputContents {
+                    try Task.checkCancellation()
                     let trimmed = c.trimmingCharacters(in: .whitespacesAndNewlines)
                     if trimmed.isEmpty { continue }
                     values.append(contentsOf: try JqJSON.parseStream(c))
@@ -311,6 +313,7 @@ public enum JqExecutable {
             useTab: useTab, indent: indent)
         var out = ""
         for v in allOutputs {
+            try Task.checkCancellation()
             out += JqFormatter.format(v, options: opts)
             if !joinOutput {
                 out += "\n"

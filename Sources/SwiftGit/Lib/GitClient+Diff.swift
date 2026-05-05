@@ -140,6 +140,7 @@ extension GitClient {
         let count = Int(git_diff_num_deltas(diff))
         var out = ""
         for i in 0..<count {
+            try Task.checkCancellation()
             var patch: OpaquePointer?
             try check(git_patch_from_diff(&patch, diff, i))
             defer { git_patch_free(patch) }

@@ -38,6 +38,7 @@ extension GitClient {
             var hunks: [BlameHunk] = []
             hunks.reserveCapacity(count)
             for i in 0..<count {
+                try Task.checkCancellation()
                 guard let h = git_blame_get_hunk_byindex(blame, UInt32(i))?.pointee
                 else { continue }
                 var oid = h.final_commit_id
