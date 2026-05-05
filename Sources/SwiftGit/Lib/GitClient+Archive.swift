@@ -13,13 +13,16 @@ import enum Archive.FileType
 
 /// Output formats `archiveTree` can produce. tar variants are
 /// libarchive's pax-restricted tar with the named filter; zip is
-/// libarchive's PKZIP with default deflate. Bzip2 / xz / zstd
-/// variants will land once swift-archive's traits become
-/// per-platform conditional (Android NDK ships none of the
-/// matching headers, so enabling them now would break that arm).
+/// libarchive's PKZIP with default deflate. The bz2 / xz / zstd
+/// arms only work where libarchive was compiled with the matching
+/// trait — macOS / Linux / Windows. iOS / Android writes throw
+/// libarchive's "filter not enabled" error.
 public enum GitArchiveFormat: Sendable, Equatable {
     case tar
     case tarGzip
+    case tarBzip2
+    case tarXz
+    case tarZstd
     case zip
 }
 
@@ -173,6 +176,9 @@ extension GitClient {
         switch format {
         case .tar:       archiveFormat = .tar; filters = [.none]
         case .tarGzip:   archiveFormat = .tar; filters = [.gzip]
+        case .tarBzip2:  archiveFormat = .tar; filters = [.bzip2]
+        case .tarXz:     archiveFormat = .tar; filters = [.xz]
+        case .tarZstd:   archiveFormat = .tar; filters = [.zstd]
         case .zip:       archiveFormat = .zip; filters = [.none]
         }
 

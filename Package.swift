@@ -107,20 +107,25 @@ let package = Package(
         .package(url: "https://github.com/jpsim/Yams",
                  from: "6.0.0"),
         // libarchive-backed multi-format archive library (tar, zip, 7z,
-        // cpio, xar, ISO9660, …) with gzip/bzip2/xz/zstd filters. The
-        // Swift wrapper lives in `contrib/Swift` of the upstream
-        // libarchive fork. Only GzipSupport is enabled here — the
-        // bzip2/lzma/zstd traits would propagate `<bzlib.h>` / `<lzma.h>`
-        // / `<zstd.h>` includes into libarchive's CArchive C target on
-        // every platform, breaking Android (NDK ships none of those
-        // headers). Bzip2Kit / XzKit / ZstdKit (this PR's headlines)
-        // bypass libarchive entirely on the platforms that have the
-        // libs available; full libarchive bz2/xz/zst integration is a
-        // follow-up that needs swift-archive's per-platform trait
-        // conditionals.
-        .package(url: "https://github.com/marcprux/swift-archive",
-                 branch: "master",
-                 traits: [.defaults, "GzipSupport"]),
+        // cpio, xar, ISO9660, …) with gzip/bzip2/xz/zstd filters. We
+        // point at our own fork on `per-platform-traits` while
+        // https://github.com/marcprux/swift-archive/pull/2 is open —
+        // the fork narrows the trait-driven `cSettings.define` and
+        // `linkerSettings.linkedLibrary` clauses to the platforms that
+        // actually ship the bz2/lzma/zstd headers (macOS / Linux /
+        // Windows). With the trait-only conditions upstream, enabling
+        // Bzip2Support / LZMASupport / ZstdSupport would propagate
+        // `<bzlib.h>` / `<lzma.h>` / `<zstd.h>` `#include`s into
+        // libarchive's CArchive on Android too, where the NDK ships
+        // none of those headers. Roll back to upstream once the PR
+        // lands.
+        .package(url: "https://github.com/odrobnik/swift-archive",
+                 branch: "per-platform-traits",
+                 traits: [.defaults,
+                          "GzipSupport",
+                          "Bzip2Support",
+                          "LZMASupport",
+                          "ZstdSupport"]),
 
         // libgit2 1.9.x packaged as a SwiftPM C target. We pin to our
         // own fork while https://github.com/ibrahimcetin/libgit2/pull/<TBD>

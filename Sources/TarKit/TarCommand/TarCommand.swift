@@ -42,6 +42,18 @@ public struct TarCommand: AsyncParsableCommand {
           help: "Filter archive through gzip (write side only — reads auto-detect).")
     public var gzip: Bool = false
 
+    @Flag(name: [.customShort("j")],
+          help: "Filter archive through bzip2 (write side only — macOS/Linux/Windows).")
+    public var bzip2: Bool = false
+
+    @Flag(name: [.customShort("J")],
+          help: "Filter archive through xz (write side only — macOS/Linux/Windows).")
+    public var xz: Bool = false
+
+    @Flag(name: .customLong("zstd"),
+          help: "Filter archive through zstd (write side only — macOS/Linux/Windows).")
+    public var zstd: Bool = false
+
     @Flag(name: [.customShort("v")],
           help: "Verbose progress.")
     public var verbose: Bool = false
@@ -85,7 +97,17 @@ public struct TarCommand: AsyncParsableCommand {
             throw ValidationError(
                 "Provide at least one file or directory to add.")
         }
-        let compression: Compression = gzip ? .gzip : .none
+        let filterCount = [gzip, bzip2, xz, zstd].filter { $0 }.count
+        guard filterCount <= 1 else {
+            throw ValidationError(
+                "At most one compression filter (-z / -j / -J / --zstd).")
+        }
+        let compression: Compression
+        if gzip { compression = .gzip }
+        else if bzip2 { compression = .bzip2 }
+        else if xz { compression = .xz }
+        else if zstd { compression = .zstd }
+        else { compression = .none }
         let url = URL(fileURLWithPath: file)
         let inputs = args.map { URL(fileURLWithPath: $0) }
         let opts = CreateOptions(
