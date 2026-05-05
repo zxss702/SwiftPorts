@@ -18,9 +18,10 @@ virtual in-memory filesystem.
 
 ## Why these tools, in this order
 
-The current port set is `zip`, `unzip`, `gh`, `glab`, and `git`.
-That's not a random list — they're **chained dependencies of the
-"work with a repo" workflow**:
+The current port set is `git`, `gh`, `glab`, the archive family
+(`zip` / `unzip` / `tar`), the compression family (`gzip` / `bzip2` /
+`xz` / `zstd` / `lz4`), and `jq`. That's not a random list — they're
+**chained dependencies of the "work with a repo" workflow**:
 
 ```
 git ──┐
@@ -29,39 +30,60 @@ git ──┐
       │
 gh ───┤── reads/writes GitHub remotes (issues, PRs, releases,
       │   workflows, …); calls into git for clone / pr checkout /
-      │   pr create
+      │   pr create; uses jq for `gh api --jq` and the archive +
+      │   compression family for `gh release download` (auto-extracts
+      │   .zip / .tar / .tar.gz / .tar.bz2 / .tar.xz / .tar.zst /
+      │   .tar.lz4) and `gh run download / view --log` (workflow
+      │   artifact ZIPs)
       │
 glab ─┤── same role for GitLab (issues, MRs, pipelines, …);
       │   shares the host-agnostic CLI plumbing (IO, Git, Secrets)
-      │   with gh via ForgeKit
+      │   with gh via ForgeKit; same `glab api --jq` integration
       │
-zip ──┤── creates `.zip` archives — used by gh's
-      │   `gh run download / view --log` to handle the ZIPs the
-      │   Actions API hands back
-      │
-unzip ─    extracts them
+zip / unzip / tar ──┐
+                    ├── archive operations — referenced by gh / glab
+                    │   for release assets and workflow artifacts
+gzip / bzip2 / xz / zstd / lz4 ──┐
+                                 ├── stream codecs that back the
+                                 │   tar.* chain on every supported
+                                 │   platform
+jq ──┘── in-process JSON filtering for `gh api --jq` / `glab api --jq`
 ```
 
 Each one closes a hole the others would otherwise have to leave to
-the system. With all five, an iOS / sandboxed macOS / server-side
-Swift app can do everything from cloning a repo, opening an issue,
-inspecting a CI pipeline, downloading a workflow artifact, and
-unpacking it — without ever running `Process`.
+the system. Together, an iOS / sandboxed macOS / server-side Swift
+app can clone a repo, open an issue, inspect a CI pipeline, download
+and unpack a release tarball, and filter the response with jq —
+without ever running `Process`.
 
 ## What ships today
 
-| Library        | Binary | What it ports |
-|----------------|--------|----------------|
-| `ForgeKit`     | —      | Host-agnostic CLI plumbing: ANSI/TTY, GitClient (Process + No-op), SecretStore (Keychain + InMemory). Shared by `gh` and `glab`. |
-| `ZipKit`       | —      | PKZIP archive operations on top of [`weichsel/ZIPFoundation`](https://github.com/weichsel/ZIPFoundation). Shared by `zip` / `unzip` / `gh`. |
-| `ZipCommand`   | `zip`  | Info-ZIP `zip(1)` — create archives. |
-| `UnzipCommand` | `unzip`| Info-ZIP `unzip(1)` — extract / list / test / pipe. |
-| `GitHub`       | —      | GitHub SDK: REST + GraphQL clients, OAuth device flow, Codable models. No ArgumentParser dep. |
-| `GhCommand`    | `gh`   | The `gh` subcommand tree. |
-| `GitLab`       | —      | GitLab SDK: REST client (`X-Next-Page` pagination, Bearer auth, `gitlab.com` and self-hosted), Codable models, nested-subgroup-aware `RepositoryReference`. |
-| `GlabCommand`  | `glab` | The `glab` subcommand tree. |
-| `SwiftGit`     | —      | In-process `GitClient` impl backed by libgit2 1.9.x. Drop-in replacement for `ForgeKit`'s `ProcessGitClient` — no system `git` binary required. |
-| `GitCommand`   | `git`  | A `git` CLI built on `SwiftGit`. SwiftBash can register `GitCommand` as the `git` builtin to shadow the system binary. |
+| Library         | Binary                       | What it ports |
+|-----------------|------------------------------|----------------|
+| `ForgeKit`      | —                            | Host-agnostic CLI plumbing: ANSI/TTY, GitClient (Process + No-op), SecretStore (Keychain + InMemory). Shared by `gh` and `glab`. |
+| `ZipKit`        | —                            | PKZIP archive operations on top of [`weichsel/ZIPFoundation`](https://github.com/weichsel/ZIPFoundation). Shared by `zip` / `unzip` / `gh`. |
+| `ZipCommand`    | `zip`                        | Info-ZIP `zip(1)` — create archives. |
+| `UnzipCommand`  | `unzip`                      | Info-ZIP `unzip(1)` — extract / list / test / pipe. |
+| `TarKit`        | —                            | POSIX tar with libarchive backend; auto-detects gzip / bzip2 / xz / zstd / lz4 filters. |
+| `TarCommand`    | `tar`                        | `tar(1)` — `-c` / `-x` / `-t` with the standard flag set. |
+| `GzipKit`       | —                            | Single-file gzip via zlib; works everywhere zlib does. |
+| `GzipCommand`   | `gzip` / `gunzip` / `zcat`   | The three gzip personalities. |
+| `Bzip2Kit`      | —                            | Single-file bzip2 via libbz2's stream API (macOS / Linux / Windows). |
+| `Bzip2Command`  | `bzip2` / `bunzip2` / `bzcat`| The three bzip2 personalities. |
+| `XzKit`         | —                            | Single-file xz / lzma2. Apple platforms back it with `Compression.framework`'s LZMA path so iOS / tvOS / watchOS / visionOS get real `.xz` support; Linux / Windows use system liblzma. |
+| `XzCommand`     | `xz` / `unxz` / `xzcat`      | The three xz personalities. |
+| `ZstdKit`       | —                            | Single-file Zstandard via libzstd's stream API (macOS / Linux / Windows). |
+| `ZstdCommand`   | `zstd` / `unzstd` / `zstdcat`| The three zstd personalities. |
+| `Lz4Kit`        | —                            | Single-file LZ4 frame format. Apple platforms use `Compression.framework`'s `LZ4_RAW` block coder; Linux / Windows use system liblz4. |
+| `Lz4Command`    | `lz4` / `unlz4` / `lz4cat`   | The three lz4 personalities. |
+| `JqKit`         | —                            | Pure-Swift jq engine (parser + evaluator + builtins) — no system C dep, runs on every supported platform. Public `Jq.eval` / `Jq.evalString` facade. |
+| `JqCommand`     | `jq`                         | `jq(1)` — the standard flag set (`-r` / `-c` / `-s` / `-e` / `--arg` / `--argjson` / `--slurpfile` / …). |
+| `GitHub`        | —                            | GitHub SDK: REST + GraphQL clients, OAuth device flow, Codable models. No ArgumentParser dep. |
+| `GhCommand`     | `gh`                         | The `gh` subcommand tree. `gh api` supports `--jq <filter>` (in-process via JqKit) and the GraphQL `{query, variables, operationName}` envelope. |
+| `GitLab`        | —                            | GitLab SDK: REST client (`X-Next-Page` pagination, Bearer auth, `gitlab.com` and self-hosted), Codable models, nested-subgroup-aware `RepositoryReference`. |
+| `GlabCommand`   | `glab`                       | The `glab` subcommand tree. `glab api` supports `--jq <filter>` (same JqKit integration). |
+| `SwiftGit`      | —                            | In-process `GitClient` impl backed by libgit2 1.9.x. Drop-in replacement for `ForgeKit`'s `ProcessGitClient` — no system `git` binary required. |
+| `GitCommand`    | `git`                        | A `git` CLI built on `SwiftGit`. SwiftBash can register `GitCommand` as the `git` builtin to shadow the system binary. |
 
 ### Surface coverage
 
@@ -87,6 +109,20 @@ unpacking it — without ever running `Process`.
   `CredentialProvider` callback. Output and exit-code semantics
   mirror real git for every supported case.
 - **`zip` / `unzip`** — the most-used Info-ZIP flag set, no shellout.
+- **`tar`** — `-c` / `-x` / `-t` with auto-detected compression. Used
+  in-process by `gh release download` so `.tar.gz` / `.tar.bz2` /
+  `.tar.xz` / `.tar.zst` / `.tar.lz4` assets unpack without a
+  subprocess.
+- **Compression family** — `gzip`, `bzip2`, `xz`, `zstd`, `lz4`, each
+  with its `*-cat` and `un-*` personalities. The same engines back
+  `tar.*` extraction in `gh`. Apple-mobile coverage varies by codec
+  (`gzip` and `xz` and `lz4` on every platform; `bzip2` and `zstd`
+  gated to macOS / Linux / Windows because the underlying C library
+  isn't in the iOS SDK or Android NDK).
+- **`jq`** — pure-Swift implementation of the standard CLI surface.
+  Library form (`JqKit`) is what powers `gh api --jq` and
+  `glab api --jq` in-process — sandboxed iOS apps can finally filter
+  API responses without spawning anything.
 
 ## Quick start
 
@@ -94,10 +130,13 @@ unpacking it — without ever running `Process`.
 swift build                                # builds everything
 swift test                                 # all targets, all tests
 swift run gh   issue list -R cli/cli       # GitHub CLI
+swift run gh   api repos/cli/cli --jq .full_name   # gh api + jq filter
 swift run glab issue list -R group/repo    # GitLab CLI
 swift run git  clone https://…             # libgit2-backed git
 swift run zip  out.zip src/                # zip(1)
 swift run unzip out.zip                    # unzip(1)
+swift run tar  -xzf release.tar.gz         # tar with gzip filter
+swift run jq   '.items[] | .name' < data.json
 ```
 
 `swift build -c release` produces optimized binaries under
@@ -106,7 +145,8 @@ swift run unzip out.zip                    # unzip(1)
 
 ## Embedding in your app
 
-The SDK libraries (`GitHub`, `GitLab`, `ZipKit`, `SwiftGit`,
+The SDK libraries (`GitHub`, `GitLab`, `ZipKit`, `TarKit`, `GzipKit`,
+`Bzip2Kit`, `XzKit`, `ZstdKit`, `Lz4Kit`, `JqKit`, `SwiftGit`,
 `ForgeKit`) have **zero `ArgumentParser` dependency** — they're
 plain Swift APIs. Use them directly when you don't need a CLI:
 
