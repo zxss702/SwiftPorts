@@ -274,10 +274,18 @@ extension Sandbox {
 
 /// `realpath(3)` wrapper. Returns `nil` if the path can't be
 /// canonicalized (typically because it doesn't exist).
+///
+/// **Windows note.** On Windows we currently fall back to
+/// `URL.standardizedFileURL.path`, which strips `..` and resolves
+/// `.` but does NOT follow symlinks. The symlink-escape protection
+/// in `RootedSandbox` is therefore partial on Windows — a symlink
+/// inside the sandbox root pointing outside it will not be rejected
+/// by `authorize`. POSIX platforms (macOS / iOS / Linux / Android)
+/// use `realpath(3)` and have full protection. Tracked as a
+/// follow-up; full Windows resolution would use
+/// `GetFinalPathNameByHandleW`.
 internal func canonicalizePath(_ path: String) -> String? {
     #if os(Windows)
-    // Windows uses `_fullpath` semantics; Foundation's
-    // `URL.standardizedFileURL.path` is a reasonable fallback.
     return URL(fileURLWithPath: path).standardizedFileURL.path
     #else
     return path.withCString { cPath -> String? in
