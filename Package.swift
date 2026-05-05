@@ -124,20 +124,14 @@ let package = Package(
         .package(url: "https://github.com/jpsim/Yams",
                  from: "6.0.0"),
         // libarchive-backed multi-format archive library (tar, zip, 7z,
-        // cpio, xar, ISO9660, …) with gzip/bzip2/xz/zstd filters. We
-        // point at our own fork on `per-platform-traits` while
-        // https://github.com/marcprux/swift-archive/pull/2 is open —
-        // the fork narrows the trait-driven `cSettings.define` and
-        // `linkerSettings.linkedLibrary` clauses to the platforms that
-        // actually ship the bz2/lzma/zstd headers (macOS / Linux /
-        // Windows). With the trait-only conditions upstream, enabling
-        // Bzip2Support / LZMASupport / ZstdSupport would propagate
-        // `<bzlib.h>` / `<lzma.h>` / `<zstd.h>` `#include`s into
-        // libarchive's CArchive on Android too, where the NDK ships
-        // none of those headers. Roll back to upstream once the PR
-        // lands.
-        .package(url: "https://github.com/odrobnik/swift-archive",
-                 branch: "per-platform-traits",
+        // cpio, xar, ISO9660, …) with gzip/bzip2/xz/zstd filters. The
+        // platform-narrowed gating from
+        // https://github.com/marcprux/swift-archive/pull/2 is now on
+        // upstream `master` but not yet in a tagged release — track the
+        // branch until v3.8.8 (or later) ships, then move to a `from:`
+        // version pin.
+        .package(url: "https://github.com/marcprux/swift-archive",
+                 branch: "master",
                  traits: [.defaults,
                           "GzipSupport",
                           "Bzip2Support",
