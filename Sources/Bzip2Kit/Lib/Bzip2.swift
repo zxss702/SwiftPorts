@@ -3,7 +3,7 @@
 // To support Apple-mobile we'd need to vendor the libbz2 sources (a
 // few thousand lines of MIT-licensed C); not worth the complexity
 // until a concrete consumer needs it.
-#if os(macOS) || os(Linux) || os(Windows) || os(Android)
+#if os(macOS) || os(Linux) || os(Windows)
 import Foundation
 import CBzip2
 

@@ -104,18 +104,6 @@ struct GitClientArchiveTests {
         #expect(head == Data([0x1f, 0x8b]))
     }
 
-    @Test("tar.zst format produces a valid zstd frame")
-    func tarZstd() async throws {
-        let dir = try makeRepo()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let client = SwiftGit.GitClient(workingDirectory: dir)
-        let archive = dir.appendingPathComponent("snap.tar.zst")
-        try await client.archiveTree(
-            treeish: "HEAD", format: .tarZstd, to: archive)
-        let head = try FileHandle(forReadingFrom: archive).readData(ofLength: 4)
-        #expect(head == Data([0x28, 0xB5, 0x2F, 0xFD]))
-    }
-
     @Test("zip format extracts via ZipKit")
     func zipFormat() async throws {
         let dir = try makeRepo()

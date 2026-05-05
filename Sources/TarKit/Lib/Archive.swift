@@ -299,11 +299,8 @@ public enum Archive {
 extension Compression {
     var libarchiveFilters: [ArchiveFilter] {
         switch self {
-        case .none:  return [.none]
-        case .gzip:  return [.gzip]
-        case .bzip2: return [.bzip2]
-        case .xz:    return [.xz]
-        case .zstd:  return [.zstd]
+        case .none: return [.none]
+        case .gzip: return [.gzip]
         }
     }
 }

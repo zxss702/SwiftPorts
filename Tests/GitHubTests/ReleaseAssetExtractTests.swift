@@ -35,61 +35,6 @@ import ZipKit
                 == "plain.bin")
     }
 
-    @Test func extractTarBz2EndToEnd() throws {
-        try roundTripTarball(compression: .bzip2)
-    }
-
-    @Test func extractTarXzEndToEnd() throws {
-        try roundTripTarball(compression: .xz)
-    }
-
-    @Test func extractTarZstEndToEnd() throws {
-        try roundTripTarball(compression: .zstd)
-    }
-
-    /// Build a tar.<compression> on disk, run it through the
-    /// dispatcher, verify a known file decodes back to the original
-    /// bytes. Covers the bz2 / xz / zst arms that became live once
-    /// libarchive's traits were enabled.
-    private func roundTripTarball(
-        compression: TarKit.Compression
-    ) throws {
-        let work = FileManager.default.temporaryDirectory
-            .appendingPathComponent("release-extract-\(UUID().uuidString)",
-                                    isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: work, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: work) }
-
-        let payloadDir = work.appendingPathComponent("repo-1.2.3", isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: payloadDir, withIntermediateDirectories: true)
-        try Data("# README\n".utf8).write(
-            to: payloadDir.appendingPathComponent("README.md"))
-
-        let suffix: String
-        switch compression {
-        case .bzip2: suffix = ".tar.bz2"
-        case .xz:    suffix = ".tar.xz"
-        case .zstd:  suffix = ".tar.zst"
-        default:     suffix = ".tar"
-        }
-        let archive = work.appendingPathComponent("repo-1.2.3" + suffix)
-        try TarKit.Archive.create(
-            at: archive,
-            paths: [payloadDir],
-            options: TarKit.CreateOptions(compression: compression))
-
-        let dest = work.appendingPathComponent("out", isDirectory: true)
-        try ArchiveFormatDetector.extract(
-            archive: archive, format: .tar, into: dest)
-
-        let readme = dest.appendingPathComponent("repo-1.2.3/README.md")
-        #expect(FileManager.default.fileExists(atPath: readme.path))
-        let contents = try String(contentsOf: readme, encoding: .utf8)
-        #expect(contents == "# README\n")
-    }
-
     @Test func extractTarGzEndToEnd() throws {
         let work = FileManager.default.temporaryDirectory
             .appendingPathComponent("release-extract-\(UUID().uuidString)",

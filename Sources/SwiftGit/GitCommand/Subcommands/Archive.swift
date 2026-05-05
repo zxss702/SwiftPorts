@@ -14,12 +14,15 @@ struct Archive: AsyncParsableCommand {
         Examples:
           git archive --format=tar.gz -o release.tar.gz HEAD
           git archive --format=zip --prefix=foo/ v1.2.3 -o foo.zip
-          git archive --format=tar.zst -o snapshot.tzst HEAD
+          git archive -o snapshot.tar HEAD
+
+        bzip2 / xz / zstd tar variants will arrive once swift-archive
+        supports per-platform trait conditionals.
         """
     )
 
     @Option(name: .long,
-            help: "tar | tar.gz | tar.bz2 | tar.xz | tar.zst | zip. Default inferred from -o, else tar.")
+            help: "tar | tar.gz | zip. Default inferred from -o, else tar.")
     var format: String?
 
     @Option(name: [.customShort("o"), .long],
@@ -55,28 +58,15 @@ struct Archive: AsyncParsableCommand {
             switch raw {
             case "tar":                          return .tar
             case "tar.gz", "tgz":                return .tarGzip
-            case "tar.bz2", "tbz", "tbz2":       return .tarBzip2
-            case "tar.xz", "txz":                return .tarXz
-            case "tar.zst", "tzst":              return .tarZstd
             case "zip":                          return .zip
             default:
                 throw ValidationError(
-                    "Unknown --format '\(raw)'. Supported: tar, tar.gz, tar.bz2, tar.xz, tar.zst, zip.")
+                    "Unknown --format '\(raw)'. Supported: tar, tar.gz, zip.")
             }
         }
         let lower = output.lowercased()
         if lower.hasSuffix(".tar.gz") || lower.hasSuffix(".tgz") {
             return .tarGzip
-        }
-        if lower.hasSuffix(".tar.bz2") || lower.hasSuffix(".tbz")
-            || lower.hasSuffix(".tbz2") {
-            return .tarBzip2
-        }
-        if lower.hasSuffix(".tar.xz") || lower.hasSuffix(".txz") {
-            return .tarXz
-        }
-        if lower.hasSuffix(".tar.zst") || lower.hasSuffix(".tzst") {
-            return .tarZstd
         }
         if lower.hasSuffix(".zip") {
             return .zip

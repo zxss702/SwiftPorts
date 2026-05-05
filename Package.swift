@@ -109,23 +109,18 @@ let package = Package(
         // libarchive-backed multi-format archive library (tar, zip, 7z,
         // cpio, xar, ISO9660, …) with gzip/bzip2/xz/zstd filters. The
         // Swift wrapper lives in `contrib/Swift` of the upstream
-        // libarchive fork.
-        //
-        // GzipSupport is non-negotiable (zip's `deflate` + tar.gz).
-        // Bzip2 / LZMA / Zstd are enabled here so libarchive's read
-        // path auto-detects `.tar.bz2` / `.tar.xz` / `.tar.zst`. The
-        // libraries are also exposed directly to our Bzip2Kit /
-        // XzKit / ZstdKit umbrellas via dedicated CBzip2 / CLZMA /
-        // CZstd systemLibrary shims (libarchive's reader won't parse
-        // a single-file `.bz2` / `.xz` / `.zst` because `raw` format
-        // is excluded from `support_format_all`).
+        // libarchive fork. Only GzipSupport is enabled here — the
+        // bzip2/lzma/zstd traits would propagate `<bzlib.h>` / `<lzma.h>`
+        // / `<zstd.h>` includes into libarchive's CArchive C target on
+        // every platform, breaking Android (NDK ships none of those
+        // headers). Bzip2Kit / XzKit / ZstdKit (this PR's headlines)
+        // bypass libarchive entirely on the platforms that have the
+        // libs available; full libarchive bz2/xz/zst integration is a
+        // follow-up that needs swift-archive's per-platform trait
+        // conditionals.
         .package(url: "https://github.com/marcprux/swift-archive",
                  branch: "master",
-                 traits: [.defaults,
-                          "GzipSupport",
-                          "Bzip2Support",
-                          "LZMASupport",
-                          "ZstdSupport"]),
+                 traits: [.defaults, "GzipSupport"]),
 
         // libgit2 1.9.x packaged as a SwiftPM C target. We pin to our
         // own fork while https://github.com/ibrahimcetin/libgit2/pull/<TBD>
@@ -313,9 +308,18 @@ let package = Package(
         ),
 
         // MARK: Bzip2Kit umbrella
+        // libbz2 isn't in the iOS / tvOS / watchOS / visionOS SDK, and
+        // Android NDK doesn't ship `<bzlib.h>` either. Gate the
+        // CBzip2 dep so SwiftPM doesn't try to honor `link "bz2"` on
+        // those platforms — the kit's source-level `#if` already
+        // empties the module on those platforms; this prevents the
+        // link directive from leaking through.
         .target(
             name: "Bzip2Kit",
-            dependencies: ["CBzip2"],
+            dependencies: [
+                .target(name: "CBzip2",
+                        condition: .when(platforms: [.macOS, .linux, .windows])),
+            ],
             path: "Sources/Bzip2Kit/Lib"
         ),
         .target(
@@ -351,9 +355,13 @@ let package = Package(
         ),
 
         // MARK: XzKit umbrella
+        // Same gating as Bzip2Kit — see comment there.
         .target(
             name: "XzKit",
-            dependencies: ["CLZMA"],
+            dependencies: [
+                .target(name: "CLZMA",
+                        condition: .when(platforms: [.macOS, .linux, .windows])),
+            ],
             path: "Sources/XzKit/Lib"
         ),
         .target(
@@ -389,9 +397,13 @@ let package = Package(
         ),
 
         // MARK: ZstdKit umbrella
+        // Same gating as Bzip2Kit — see comment there.
         .target(
             name: "ZstdKit",
-            dependencies: ["CZstd"],
+            dependencies: [
+                .target(name: "CZstd",
+                        condition: .when(platforms: [.macOS, .linux, .windows])),
+            ],
             path: "Sources/ZstdKit/Lib"
         ),
         .target(
