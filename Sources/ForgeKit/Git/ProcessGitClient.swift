@@ -1,4 +1,5 @@
 import Foundation
+import Sandbox
 
 #if os(macOS) || os(Linux) || os(Windows)
 /// Default `GitClient` impl that shells out to `git` via `Process`.
@@ -11,7 +12,7 @@ public struct ProcessGitClient: GitClient {
     public let gitPath: String
 
     public init(
-        workingDirectory: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+        workingDirectory: URL = Sandbox.currentDirectory,
         gitPath: String = "/usr/bin/env"
     ) {
         self.workingDirectory = workingDirectory
@@ -118,10 +119,18 @@ public struct ProcessGitClient: GitClient {
     }
 
     private func runGit(_ args: [String]) async throws -> ProcessResult {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<ProcessResult, Error>) in
+        let executableURL = URL(fileURLWithPath: gitPath)
+        // Sandbox boundary: under Sandbox.rooted(at:) the system git
+        // binary won't be under root and this denies — embedders
+        // wanting in-process git use SwiftGit.GitClient (libgit2).
+        try await Sandbox.authorize(executableURL)
+        // Also gate the working directory — the git command will
+        // open files there, so refusing now beats refusing later.
+        try await Sandbox.authorize(workingDirectory)
+        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<ProcessResult, Error>) in
             do {
                 let process = Process()
-                process.executableURL = URL(fileURLWithPath: gitPath)
+                process.executableURL = executableURL
                 process.arguments = ["git"] + args
                 process.currentDirectoryURL = workingDirectory
 

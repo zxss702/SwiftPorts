@@ -1,4 +1,5 @@
 import Foundation
+import Sandbox
 
 /// Write to / read from the system clipboard via the platform helper:
 /// `pbcopy`/`pbpaste` on macOS, `xclip`/`wl-copy` on Linux,
@@ -11,7 +12,7 @@ public enum Clipboard {
         try await pipe(to: "/usr/bin/pbcopy", input: string)
         #elseif os(Linux)
         // Prefer wl-copy on Wayland, fall back to xclip on X11.
-        let waylandDisplay = ProcessInfo.processInfo.environment["WAYLAND_DISPLAY"]
+        let waylandDisplay = Sandbox.env("WAYLAND_DISPLAY")
         if let waylandDisplay, !waylandDisplay.isEmpty {
             try await pipe(to: "/usr/bin/env",
                            input: string,
@@ -31,10 +32,13 @@ public enum Clipboard {
         input: String,
         args: [String] = []
     ) async throws {
+        let executableURL = URL(fileURLWithPath: executable)
+        // Sandbox boundary — see Browser.runProcess for rationale.
+        try await Sandbox.authorize(executableURL)
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             do {
                 let process = Process()
-                process.executableURL = URL(fileURLWithPath: executable)
+                process.executableURL = executableURL
                 process.arguments = args
                 let inPipe = Pipe()
                 process.standardInput = inPipe

@@ -1,4 +1,5 @@
 import Foundation
+import Sandbox
 
 /// Open URLs in the user's default browser by shelling out to the
 /// platform's URL opener (`open` on macOS, `xdg-open` on Linux,
@@ -45,10 +46,17 @@ public enum Browser {
     private static func runProcess(
         executable: String, args: [String]
     ) async throws -> Int32 {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Int32, Error>) in
+        let executableURL = URL(fileURLWithPath: executable)
+        // Sandbox boundary: ask the active sandbox whether this
+        // executable may be launched. Under `Sandbox.rooted(at:)`,
+        // platform binaries like `/usr/bin/open` aren't under root
+        // and will be denied — embedders running in a sandbox don't
+        // get browser-launching capability.
+        try await Sandbox.authorize(executableURL)
+        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Int32, Error>) in
             do {
                 let process = Process()
-                process.executableURL = URL(fileURLWithPath: executable)
+                process.executableURL = executableURL
                 process.arguments = args
                 process.standardOutput = Pipe()
                 process.standardError = Pipe()
