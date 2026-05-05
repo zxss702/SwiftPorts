@@ -1,6 +1,7 @@
 import ArgumentParser
 import Foundation
 import JqKit
+import Sandbox
 
 /// `jq [OPTIONS] FILTER [FILE...]` — command-line JSON processor.
 ///
@@ -137,7 +138,9 @@ public enum JqExecutable {
                 let name = argv[i + 1]
                 let path = argv[i + 2]
                 do {
-                    let data = try Data(contentsOf: URL(fileURLWithPath: path))
+                    let url = Sandbox.resolve(path)
+                    try await Sandbox.authorize(url)
+                    let data = try Data(contentsOf: url)
                     let text = String(decoding: data, as: UTF8.self)
                     if a == "--slurpfile" {
                         let vs = try JqJSON.parseStream(text)
@@ -226,7 +229,9 @@ public enum JqExecutable {
                     continue
                 }
                 do {
-                    let data = try Data(contentsOf: URL(fileURLWithPath: f))
+                    let url = Sandbox.resolve(f)
+                    try await Sandbox.authorize(url)
+                    let data = try Data(contentsOf: url)
                     inputContents.append(String(decoding: data, as: UTF8.self))
                 } catch {
                     writeErr("jq: error: cannot read file \(f): \(error)\n")
@@ -275,7 +280,11 @@ public enum JqExecutable {
             return 2
         }
 
-        let env = ProcessInfo.processInfo.environment
+        // jq's `env` / `$ENV` builtins read here. Going through
+        // Sandbox.environment means a sandboxed task feeds an
+        // empty (default-deny) env or the embedder-supplied env to
+        // the filter — never leaking the host process's env.
+        let env = Sandbox.environment
 
         var sharedVars: [String: JqValue] = [:]
         for (name, val) in namedArgs {

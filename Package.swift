@@ -562,6 +562,7 @@ let package = Package(
             name: "JqCommand",
             dependencies: [
                 "JqKit",
+                "Sandbox",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Sources/JqKit/JqCommand"
