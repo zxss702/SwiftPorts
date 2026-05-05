@@ -7,6 +7,9 @@ import Foundation
 public enum Compression: Sendable, Equatable {
     case none
     case gzip
+    case bzip2
+    case xz
+    case zstd
 }
 
 public struct CreateOptions: Sendable {

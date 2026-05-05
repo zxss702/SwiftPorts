@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - 'eval/**'
+      - 'feat/**'
   pull_request:
     branches:
       - main
@@ -25,6 +26,14 @@ jobs:
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "26.0"
+      - name: Install C dependencies (Homebrew)
+        # bzip2 / xz / zstd are needed by Bzip2Kit / XzKit / ZstdKit
+        # and by libarchive's bz2 / xz / zstd filters. macOS bundles
+        # libbz2 / liblzma in the SDK, but their pkg-config .pc files
+        # ship via Homebrew only — and zstd isn't in the SDK at all.
+        # Install all three so SwiftPM's pkgConfig resolution finds
+        # them uniformly.
+        run: brew install bzip2 xz zstd
       - name: Verify Swift version
         run: swift --version
       - name: Build (macOS)
@@ -64,9 +73,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Install C dependencies
+        # libssl/zlib are libgit2's transitive deps; bz2 / lzma / zstd
+        # are needed by Bzip2Kit / XzKit / ZstdKit and by libarchive's
+        # filters once Bzip2Support / LZMASupport / ZstdSupport traits
+        # are on.
         run: |
           apt-get update
-          apt-get install -y libssl-dev pkg-config zlib1g-dev ca-certificates
+          apt-get install -y libssl-dev pkg-config ca-certificates \
+                             zlib1g-dev libbz2-dev liblzma-dev libzstd-dev
       - name: Verify Swift version
         run: swift --version
       - name: Build (Linux)
@@ -91,18 +105,21 @@ jobs:
           swift-version: "6.3.1"
       - name: Verify Swift version
         run: swift --version
-      - name: Install zlib (vcpkg)
+      - name: Install C dependencies (vcpkg)
         # vcpkg is preinstalled on windows-latest at C:\vcpkg.
-        # x64-windows-static-md gives us a `zlib.lib` linked against
+        # x64-windows-static-md gives us .lib files linked against
         # the dynamic UCRT, which matches Swift's default link mode.
         #
-        # libarchive's `linkedLibrary("z")` expands to `z.lib` on
-        # Windows (lld-link convention), but vcpkg names the artifact
-        # `zlib.lib`. Drop an alias copy named `z.lib` next to it so
-        # `-lz` resolves cleanly via /LIBPATH below.
+        # libarchive (and our CBzip2 / CLZMA / CZstd shims) use Unix-
+        # style link names (`-lz`, `-lbz2`, `-llzma`, `-lzstd`) which
+        # lld-link translates to `z.lib`, `bz2.lib`, `lzma.lib`,
+        # `zstd.lib`. vcpkg uses Windows-style names (`zlib.lib`,
+        # `bz2.lib` (matches), `lzma.lib` (matches), `zstd.lib`
+        # (matches)). Drop a `z.lib` alias next to `zlib.lib` so
+        # `-lz` resolves; the rest already line up.
         shell: pwsh
         run: |
-          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install zlib --triplet x64-windows-static-md
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install zlib bzip2 liblzma zstd --triplet x64-windows-static-md
           $base = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md"
           $zlib = Get-ChildItem -Path "$base\lib" -Filter "zlib*.lib" -File | Select-Object -First 1 -ExpandProperty FullName
           if (-not $zlib) {
@@ -111,19 +128,24 @@ jobs:
             exit 1
           }
           Copy-Item -Force $zlib "$base\lib\z.lib"
+          # Diagnostic: list everything vcpkg dropped, so a future
+          # naming-mismatch surfaces in CI logs immediately.
+          Write-Host "vcpkg .lib inventory:"
+          Get-ChildItem "$base\lib" -Filter "*.lib" | Select-Object Name
+          "VCPKG_BASE=$base" | Out-File -FilePath $env:GITHUB_ENV -Append
           "ZLIB_BASE=$base"  | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Build (Windows)
         shell: pwsh
         run: |
           swift build --build-tests -v `
-            -Xcc "-I$env:ZLIB_BASE\include" `
-            -Xlinker "/LIBPATH:$env:ZLIB_BASE\lib"
+            -Xcc "-I$env:VCPKG_BASE\include" `
+            -Xlinker "/LIBPATH:$env:VCPKG_BASE\lib"
       - name: Test (Windows)
         shell: pwsh
         run: |
           swift test -v --skip-build --no-parallel `
-            -Xcc "-I$env:ZLIB_BASE\include" `
-            -Xlinker "/LIBPATH:$env:ZLIB_BASE\lib"
+            -Xcc "-I$env:VCPKG_BASE\include" `
+            -Xlinker "/LIBPATH:$env:VCPKG_BASE\lib"
 
   # Uses skiptools/swift-android-action to install the swift.org Android
   # SDK + NDK + emulator stack. We then invoke `swift build` ourselves
@@ -159,6 +181,9 @@ jobs:
           for target in ForgeKit ZipKit ZipCommand UnzipCommand \
                         TarKit TarCommand \
                         GzipKit GzipCommand \
+                        Bzip2Kit Bzip2Command \
+                        XzKit XzCommand \
+                        ZstdKit ZstdCommand \
                         GitHub GhCommand GitLab GlabCommand \
                         SwiftGit GitCommand; do
             echo "::group::swift build --target $target"

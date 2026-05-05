@@ -50,6 +50,27 @@ let package = Package(
         .executable(name: "gunzip", targets: ["gunzip"]),
         .executable(name: "zcat", targets: ["zcat"]),
 
+        // Bzip2Kit umbrella — single-file bzip2 via libbz2's stream API.
+        .library(name: "Bzip2Kit", targets: ["Bzip2Kit"]),
+        .library(name: "Bzip2Command", targets: ["Bzip2Command"]),
+        .executable(name: "bzip2", targets: ["bzip2"]),
+        .executable(name: "bunzip2", targets: ["bunzip2"]),
+        .executable(name: "bzcat", targets: ["bzcat"]),
+
+        // XzKit umbrella — single-file xz / lzma2 via liblzma's stream API.
+        .library(name: "XzKit", targets: ["XzKit"]),
+        .library(name: "XzCommand", targets: ["XzCommand"]),
+        .executable(name: "xz", targets: ["xz"]),
+        .executable(name: "unxz", targets: ["unxz"]),
+        .executable(name: "xzcat", targets: ["xzcat"]),
+
+        // ZstdKit umbrella — single-file Zstandard via libzstd's stream API.
+        .library(name: "ZstdKit", targets: ["ZstdKit"]),
+        .library(name: "ZstdCommand", targets: ["ZstdCommand"]),
+        .executable(name: "zstd", targets: ["zstd"]),
+        .executable(name: "unzstd", targets: ["unzstd"]),
+        .executable(name: "zstdcat", targets: ["zstdcat"]),
+
         // GitHub umbrella — gh(1) port.
         .library(name: "GitHub", targets: ["GitHub"]),
         .library(name: "GhCommand", targets: ["GhCommand"]),
@@ -88,12 +109,23 @@ let package = Package(
         // libarchive-backed multi-format archive library (tar, zip, 7z,
         // cpio, xar, ISO9660, …) with gzip/bzip2/xz/zstd filters. The
         // Swift wrapper lives in `contrib/Swift` of the upstream
-        // libarchive fork. We enable GzipSupport so zip's `deflate`
-        // method works (zlib link); the other compression filters stay
-        // off by default — turn them on per-platform if/when needed.
+        // libarchive fork.
+        //
+        // GzipSupport is non-negotiable (zip's `deflate` + tar.gz).
+        // Bzip2 / LZMA / Zstd are enabled here so libarchive's read
+        // path auto-detects `.tar.bz2` / `.tar.xz` / `.tar.zst`. The
+        // libraries are also exposed directly to our Bzip2Kit /
+        // XzKit / ZstdKit umbrellas via dedicated CBzip2 / CLZMA /
+        // CZstd systemLibrary shims (libarchive's reader won't parse
+        // a single-file `.bz2` / `.xz` / `.zst` because `raw` format
+        // is excluded from `support_format_all`).
         .package(url: "https://github.com/marcprux/swift-archive",
                  branch: "master",
-                 traits: [.defaults, "GzipSupport"]),
+                 traits: [.defaults,
+                          "GzipSupport",
+                          "Bzip2Support",
+                          "LZMASupport",
+                          "ZstdSupport"]),
 
         // libgit2 1.9.x packaged as a SwiftPM C target. We pin to our
         // own fork while https://github.com/ibrahimcetin/libgit2/pull/<TBD>
@@ -216,6 +248,33 @@ let package = Package(
                 .apt(["zlib1g-dev"]),
             ]
         ),
+        .systemLibrary(
+            name: "CBzip2",
+            path: "Sources/CBzip2",
+            pkgConfig: "bzip2",
+            providers: [
+                .brew(["bzip2"]),
+                .apt(["libbz2-dev"]),
+            ]
+        ),
+        .systemLibrary(
+            name: "CLZMA",
+            path: "Sources/CLZMA",
+            pkgConfig: "liblzma",
+            providers: [
+                .brew(["xz"]),
+                .apt(["liblzma-dev"]),
+            ]
+        ),
+        .systemLibrary(
+            name: "CZstd",
+            path: "Sources/CZstd",
+            pkgConfig: "libzstd",
+            providers: [
+                .brew(["zstd"]),
+                .apt(["libzstd-dev"]),
+            ]
+        ),
         .target(
             name: "GzipKit",
             dependencies: ["CZlib"],
@@ -251,6 +310,120 @@ let package = Package(
         .testTarget(
             name: "GzipTests",
             dependencies: ["GzipCommand", "GzipKit"]
+        ),
+
+        // MARK: Bzip2Kit umbrella
+        .target(
+            name: "Bzip2Kit",
+            dependencies: ["CBzip2"],
+            path: "Sources/Bzip2Kit/Lib"
+        ),
+        .target(
+            name: "Bzip2Command",
+            dependencies: [
+                "Bzip2Kit",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            path: "Sources/Bzip2Kit/Bzip2Command"
+        ),
+        .executableTarget(
+            name: "bzip2",
+            dependencies: ["Bzip2Command"],
+            path: "Sources/Bzip2Kit/bzip2"
+        ),
+        .executableTarget(
+            name: "bunzip2",
+            dependencies: ["Bzip2Command"],
+            path: "Sources/Bzip2Kit/bunzip2"
+        ),
+        .executableTarget(
+            name: "bzcat",
+            dependencies: ["Bzip2Command"],
+            path: "Sources/Bzip2Kit/bzcat"
+        ),
+        .testTarget(
+            name: "Bzip2KitTests",
+            dependencies: ["Bzip2Kit"]
+        ),
+        .testTarget(
+            name: "Bzip2Tests",
+            dependencies: ["Bzip2Command", "Bzip2Kit"]
+        ),
+
+        // MARK: XzKit umbrella
+        .target(
+            name: "XzKit",
+            dependencies: ["CLZMA"],
+            path: "Sources/XzKit/Lib"
+        ),
+        .target(
+            name: "XzCommand",
+            dependencies: [
+                "XzKit",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            path: "Sources/XzKit/XzCommand"
+        ),
+        .executableTarget(
+            name: "xz",
+            dependencies: ["XzCommand"],
+            path: "Sources/XzKit/xz"
+        ),
+        .executableTarget(
+            name: "unxz",
+            dependencies: ["XzCommand"],
+            path: "Sources/XzKit/unxz"
+        ),
+        .executableTarget(
+            name: "xzcat",
+            dependencies: ["XzCommand"],
+            path: "Sources/XzKit/xzcat"
+        ),
+        .testTarget(
+            name: "XzKitTests",
+            dependencies: ["XzKit"]
+        ),
+        .testTarget(
+            name: "XzTests",
+            dependencies: ["XzCommand", "XzKit"]
+        ),
+
+        // MARK: ZstdKit umbrella
+        .target(
+            name: "ZstdKit",
+            dependencies: ["CZstd"],
+            path: "Sources/ZstdKit/Lib"
+        ),
+        .target(
+            name: "ZstdCommand",
+            dependencies: [
+                "ZstdKit",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            path: "Sources/ZstdKit/ZstdCommand"
+        ),
+        .executableTarget(
+            name: "zstd",
+            dependencies: ["ZstdCommand"],
+            path: "Sources/ZstdKit/zstd"
+        ),
+        .executableTarget(
+            name: "unzstd",
+            dependencies: ["ZstdCommand"],
+            path: "Sources/ZstdKit/unzstd"
+        ),
+        .executableTarget(
+            name: "zstdcat",
+            dependencies: ["ZstdCommand"],
+            path: "Sources/ZstdKit/zstdcat"
+        ),
+        .testTarget(
+            name: "ZstdKitTests",
+            dependencies: ["ZstdKit"]
+        ),
+        .testTarget(
+            name: "ZstdTests",
+            dependencies: ["ZstdCommand", "ZstdKit"]
         ),
 
         // MARK: GitHub umbrella
@@ -332,6 +505,10 @@ let package = Package(
             dependencies: [
                 "ForgeKit",
                 .product(name: "libgit2", package: "libgit2"),
+                // For `git archive` — libarchive's writer is the
+                // backend so the operation runs in-process and works
+                // under sandboxed iOS / tvOS / watchOS.
+                .product(name: "Archive", package: "swift-archive"),
             ],
             path: "Sources/SwiftGit/Lib"
         ),
@@ -352,7 +529,7 @@ let package = Package(
         ),
         .testTarget(
             name: "SwiftGitTests",
-            dependencies: ["SwiftGit", "ForgeKit"]
+            dependencies: ["SwiftGit", "ForgeKit", "TarKit"]
         ),
         .testTarget(
             name: "GitCommandTests",
