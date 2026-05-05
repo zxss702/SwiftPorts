@@ -692,7 +692,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "git",
-            dependencies: ["GitCommand"],
+            dependencies: ["GitCommand", "Sandbox"],
             path: "Sources/SwiftGit/git"
         ),
         .testTarget(

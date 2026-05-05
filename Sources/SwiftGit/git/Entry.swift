@@ -1,6 +1,7 @@
 import Foundation
 import ArgumentParser
 import GitCommand
+import Sandbox
 
 @main
 struct Entry {
@@ -9,7 +10,7 @@ struct Entry {
             // Real git accepts attached short-option-with-value forms
             // like `-U3` (= `-U 3`). ArgumentParser doesn't support
             // those for typed options, so split them out before parsing.
-            let argv = Self.preprocess(Array(CommandLine.arguments.dropFirst()))
+            let argv = Self.preprocess(Array(Sandbox.arguments.dropFirst()))
             var cmd = try GitCommand.parseAsRoot(argv)
             if var asyncCmd = cmd as? any AsyncParsableCommand {
                 try await asyncCmd.run()
