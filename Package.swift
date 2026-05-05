@@ -360,12 +360,17 @@ let package = Package(
         ),
 
         // MARK: XzKit umbrella
-        // Same gating as Bzip2Kit — see comment there.
+        // Apple platforms (macOS / iOS / tvOS / watchOS / visionOS)
+        // back the engine with `Compression.framework`'s LZMA path,
+        // which produces and consumes real `.xz` byte streams. Linux
+        // / Windows still use system `liblzma` via the CLZMA shim.
+        // Android stays gated out — no NDK liblzma and no Compression
+        // framework either.
         .target(
             name: "XzKit",
             dependencies: [
                 .target(name: "CLZMA",
-                        condition: .when(platforms: [.macOS, .linux, .windows])),
+                        condition: .when(platforms: [.linux, .windows])),
             ],
             path: "Sources/XzKit/Lib"
         ),
@@ -465,6 +470,7 @@ let package = Package(
                 "ForgeKit",
                 "SwiftGit",
                 "TarKit",
+                "XzKit",
                 "ZipKit",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
@@ -477,7 +483,10 @@ let package = Package(
         ),
         .testTarget(
             name: "GitHubTests",
-            dependencies: ["GitHub", "GhCommand", "ForgeKit"],
+            dependencies: [
+                "GitHub", "GhCommand", "ForgeKit",
+                "TarKit", "XzKit", "ZipKit",
+            ],
             resources: [
                 .copy("Fixtures"),
             ]

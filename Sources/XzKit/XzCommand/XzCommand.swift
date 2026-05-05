@@ -1,7 +1,7 @@
-// libbz2/liblzma/libzstd are not in the iOS / tvOS / watchOS / visionOS
-// SDK. Gate the whole module to platforms where the system library is
-// available; iOS support requires vendoring sources.
-#if os(macOS) || os(Linux) || os(Windows)
+// XzKit is available wherever Apple's Compression.framework or
+// system liblzma is — every Apple platform plus Linux / Windows.
+// Android stays gated out (no NDK lzma, no Compression framework).
+#if canImport(Compression) || os(Linux) || os(Windows)
 
 import ArgumentParser
 import Foundation

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import TarKit
+import XzKit
 import ZipKit
 @testable import GhCommand
 
@@ -35,25 +36,71 @@ import ZipKit
                 == "plain.bin")
     }
 
-    // libarchive's bz2 / xz / zstd filters are gated to platforms
-    // where the system libraries ship (per the swift-archive
+    // libarchive's bz2 / zstd filters are gated to platforms where
+    // the system libraries ship (per the swift-archive
     // per-platform-traits fork) — macOS / Linux / Windows. iOS /
     // tvOS / watchOS / visionOS / Android do not compile those
     // filters into CArchive, so write / read of those compressed
-    // tarballs throws `archiveOpenFailed`. Gate the tests.
+    // tarballs throws `archiveOpenFailed`. Gate those tests.
+    //
+    // tar.xz is treated specially: XzKit has an Apple-libcompression
+    // backend, so we have a dedicated `extractTarXzEndToEnd` test
+    // below that builds the fixture through the chain (TarKit plain
+    // tar → XzKit compress) and exercises the `gh release download`
+    // dispatcher's chained-decompression branch on iOS too.
     #if os(macOS) || os(Linux) || os(Windows)
     @Test func extractTarBz2EndToEnd() throws {
         try roundTripTarball(compression: .bzip2)
-    }
-
-    @Test func extractTarXzEndToEnd() throws {
-        try roundTripTarball(compression: .xz)
     }
 
     @Test func extractTarZstEndToEnd() throws {
         try roundTripTarball(compression: .zstd)
     }
     #endif
+
+    @Test func extractTarXzEndToEnd() throws {
+        let work = FileManager.default.temporaryDirectory
+            .appendingPathComponent("release-extract-\(UUID().uuidString)",
+                                    isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+
+        let payloadDir = work.appendingPathComponent("repo-1.2.3", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: payloadDir, withIntermediateDirectories: true)
+        try Data("# README\n".utf8).write(
+            to: payloadDir.appendingPathComponent("README.md"))
+
+        // On iOS / tvOS / watchOS / visionOS libarchive can't write
+        // .xz natively (the lzma trait isn't compiled in there); on
+        // those platforms we have to chain plain-tar + XzKit. The
+        // happy path on macOS / Linux / Windows uses TarKit's
+        // libarchive xz filter directly and produces an identical
+        // .xz container.
+        let archive = work.appendingPathComponent("repo-1.2.3.tar.xz")
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
+        let plainTar = work.appendingPathComponent("repo-1.2.3.tar")
+        try TarKit.Archive.create(at: plainTar, paths: [payloadDir])
+        let plainBytes = try Data(contentsOf: plainTar)
+        let xzBytes = try XzKit.Xz.compress(plainBytes)
+        try xzBytes.write(to: archive)
+        #else
+        try TarKit.Archive.create(
+            at: archive,
+            paths: [payloadDir],
+            options: TarKit.CreateOptions(compression: .xz))
+        #endif
+
+        let dest = work.appendingPathComponent("out", isDirectory: true)
+        try ArchiveFormatDetector.extract(
+            archive: archive, format: .tar, into: dest)
+
+        let readme = dest.appendingPathComponent("repo-1.2.3/README.md")
+        #expect(FileManager.default.fileExists(atPath: readme.path))
+        let contents = try String(contentsOf: readme, encoding: .utf8)
+        #expect(contents == "# README\n")
+    }
 
     /// Build a tar.<compression> on disk, run it through the
     /// dispatcher, verify a known file decodes back. Covers the

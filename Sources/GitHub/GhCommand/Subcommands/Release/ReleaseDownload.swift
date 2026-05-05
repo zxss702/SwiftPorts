@@ -5,6 +5,7 @@ import FoundationNetworking  // URLSession lives in a separate module on Linux
 #endif
 import GitHub
 import TarKit
+import XzKit
 import ZipKit
 
 struct ReleaseDownload: AsyncParsableCommand {
@@ -162,6 +163,25 @@ enum ArchiveFormatDetector {
                 from: archive,
                 options: ZipKit.ExtractOptions(destination: dest))
         case .tar:
+            // For `.tar.xz` on platforms where libarchive's lzma
+            // filter isn't compiled in (Apple-mobile / Android in our
+            // build matrix), libarchive's tar reader will fail on
+            // the wrapper. Detect that suffix and pre-decompress
+            // through XzKit (which has its own Apple-libcompression
+            // backend), then hand plain tar bytes to TarKit. Other
+            // platforms fall through to libarchive's auto-detect
+            // path which handles every supported filter natively.
+            #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
+            let lower = archive.lastPathComponent.lowercased()
+            if lower.hasSuffix(".tar.xz") || lower.hasSuffix(".txz") {
+                let xzBytes = try Data(contentsOf: archive)
+                let tarBytes = try XzKit.Xz.decompress(xzBytes)
+                try TarKit.Archive.extract(
+                    from: tarBytes,
+                    options: TarKit.ExtractOptions(destination: dest))
+                return
+            }
+            #endif
             try TarKit.Archive.extract(
                 from: archive,
                 options: TarKit.ExtractOptions(destination: dest))

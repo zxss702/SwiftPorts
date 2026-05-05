@@ -1,4 +1,4 @@
-#if os(macOS) || os(Linux) || os(Windows)
+#if canImport(Compression) || os(Linux) || os(Windows)
 import XzCommand
 
 @main
