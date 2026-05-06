@@ -11,6 +11,7 @@ import Testing
         #expect(cmd.method == "GET")
         #expect(cmd.fields.isEmpty)
         #expect(cmd.rawFields.isEmpty)
+        #expect(cmd.inputFile == nil)
     }
 
     @Test func acceptsMethodOverride() throws {
@@ -33,6 +34,13 @@ import Testing
         #expect(long.jqFilter == ".full_name")
     }
 
+    @Test func parsesInputFileFlag() throws {
+        let path = try ApiCommand.parse(["graphql", "--input", "body.json"])
+        #expect(path.inputFile == "body.json")
+        let stdin = try ApiCommand.parse(["graphql", "--input", "-"])
+        #expect(stdin.inputFile == "-")
+    }
+
     @Test func recognizesGraphQLEndpoint() {
         #expect(ApiCommand.isGraphQLEndpoint("graphql"))
         #expect(ApiCommand.isGraphQLEndpoint("/graphql"))
@@ -40,9 +48,13 @@ import Testing
     }
 
     @Test func graphqlBodyShapeWithVariablesObject() throws {
+        // A variables value supplied as a Swift dictionary is passed
+        // through to the variables map under the key `variables`. This
+        // matches upstream: the `variables` field name is NOT special-
+        // cased — only `query` and `operationName` are.
         let reshaped = ApiCommand.reshapeGraphQLBody([
             "query": "mutation { x }",
-            "variables": ["id": "abc"],
+            "id": "abc",
         ])
         let query = reshaped["query"] as? String
         let vars = reshaped["variables"] as? [String: Any]
@@ -50,14 +62,15 @@ import Testing
         #expect((vars?["id"] as? String) == "abc")
     }
 
-    @Test func graphqlBodyParsesVariablesJSONString() throws {
+    @Test func graphqlBodyTreatsVariablesKeyAsRegularVariable() throws {
+        // Strict upstream parity: -F variables=<json> does NOT special-
+        // parse. Object-shaped variables go through --input.
         let reshaped = ApiCommand.reshapeGraphQLBody([
             "query": "q",
-            "variables": #"{"id":42,"draft":true}"#,
+            "variables": #"{"id":42}"#,
         ])
         let vars = reshaped["variables"] as? [String: Any]
-        #expect((vars?["id"] as? Int) == 42)
-        #expect((vars?["draft"] as? Bool) == true)
+        #expect((vars?["variables"] as? String) == #"{"id":42}"#)
     }
 
     @Test func graphqlBodyFoldsExtraFieldsIntoVariables() throws {
@@ -78,6 +91,14 @@ import Testing
         #expect((vars?["foo"] as? String) == "bar")
     }
 
+    @Test func graphqlBodyOmitsVariablesWhenEmpty() throws {
+        // Upstream omits `variables` from the request envelope when no
+        // variables were supplied — matters for queries that take no
+        // arguments.
+        let reshaped = ApiCommand.reshapeGraphQLBody(["query": "{ viewer { login } }"])
+        #expect(reshaped["variables"] == nil)
+    }
+
     @Test func graphqlBodyPreservesOperationNameAtTopLevel() throws {
         // Multi-operation documents need operationName as a top-level
         // field, not as a variable.
@@ -95,5 +116,49 @@ import Testing
     @Test func graphqlBodyOmitsOperationNameWhenAbsent() throws {
         let reshaped = ApiCommand.reshapeGraphQLBody(["query": "{ a }"])
         #expect(reshaped["operationName"] == nil)
+    }
+
+    // MARK: --input round-trip
+
+    @Test func inputFileReadsBytesVerbatimFromDisk() throws {
+        // Round-trip parity check, mirroring the createCommitOnBranch
+        // pattern from PR #19: a JSON body with a nested `input` object
+        // goes through --input <file> and comes out byte-for-byte.
+        let body = #"""
+        {
+          "query": "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }",
+          "variables": {
+            "input": {
+              "branch": { "repositoryNameWithOwner": "Cocoanetics/SwiftPorts", "branchName": "main" },
+              "message": { "headline": "test" },
+              "expectedHeadOid": "0000000000000000000000000000000000000000",
+              "fileChanges": { "additions": [] }
+            }
+          }
+        }
+        """#
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("api-input-\(UUID().uuidString).json")
+        try body.data(using: .utf8)!.write(to: tmp)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let read = try ApiCommand.readInputFile(tmp.path)
+        #expect(String(data: read, encoding: .utf8) == body)
+
+        // The bytes must round-trip through JSONSerialization unchanged
+        // in shape — i.e., the nested `input` object is still an
+        // object, not a string. This is the assertion that demonstrates
+        // the gap in -F is plugged by --input.
+        let parsed = try JSONSerialization.jsonObject(with: read) as? [String: Any]
+        let variables = parsed?["variables"] as? [String: Any]
+        let input = variables?["input"] as? [String: Any]
+        #expect(input != nil)
+        #expect((input?["expectedHeadOid"] as? String) == "0000000000000000000000000000000000000000")
+    }
+
+    @Test func inputFileMissingPathThrows() throws {
+        #expect(throws: (any Error).self) {
+            _ = try ApiCommand.readInputFile("/definitely/not/a/real/path-\(UUID().uuidString).json")
+        }
     }
 }
