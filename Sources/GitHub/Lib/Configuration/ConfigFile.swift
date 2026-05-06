@@ -33,9 +33,16 @@ public struct ConfigFileStore: Sendable {
     }
 
     public static var defaultPath: URL {
+        // Resolution order matches HostsFileStore.defaultPath:
+        // $XDG_CONFIG_HOME → $HOME/.config → platform home/.config.
+        // Steps 1 and 2 honor explicit env overrides; only fall
+        // through to the platform home when both are unset.
         let dir: URL
         if let xdg = Sandbox.env("XDG_CONFIG_HOME"), !xdg.isEmpty {
             dir = URL(fileURLWithPath: xdg, isDirectory: true)
+        } else if let home = Sandbox.env("HOME"), !home.isEmpty {
+            dir = URL(fileURLWithPath: home, isDirectory: true)
+                .appendingPathComponent(".config", isDirectory: true)
         } else {
             // Sandbox.homeDirectory handles iOS-availability internally.
             dir = Sandbox.homeDirectory

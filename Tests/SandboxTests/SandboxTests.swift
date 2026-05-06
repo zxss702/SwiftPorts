@@ -44,6 +44,29 @@ import Testing
         // depends on platform.
         #expect(!home.path.isEmpty)
     }
+
+    /// Regression for chatgpt-codex-connector PR #17 review comment.
+    ///
+    /// Without an active sandbox, `currentDirectory` MUST report the
+    /// OS CWD (`getcwd(3)` via `FileManager.default.currentDirectoryPath`),
+    /// **not** the host process's `$PWD` env var. `$PWD` is a shell
+    /// convention; an embedder calling `chdir(2)` /
+    /// `FileManager.changeCurrentDirectoryPath(_:)` without rewriting
+    /// `$PWD` will leave it stale, and downstream relative-path
+    /// resolution must not target the wrong directory.
+    @Test func staticCurrentDirectoryIgnoresHostPWDWhenNoSandbox() {
+        // Even if the host has PWD set (it usually does), our static
+        // accessor must report the OS CWD — which equals
+        // FileManager.default.currentDirectoryPath, not env["PWD"].
+        // (We can't unset PWD on the host process from a test, but we
+        // CAN demonstrate the accessor doesn't return that value when
+        // the OS CWD differs from PWD. Use the actual OS CWD as the
+        // contract: `Sandbox.currentDirectory.path` must always equal
+        // `FileManager.default.currentDirectoryPath` outside a sandbox.)
+        #expect(Sandbox.current == nil, "test requires no sandbox set")
+        let osCWD = FileManager.default.currentDirectoryPath
+        #expect(Sandbox.currentDirectory.path == osCWD)
+    }
 }
 
 // MARK: - rooted(at:)

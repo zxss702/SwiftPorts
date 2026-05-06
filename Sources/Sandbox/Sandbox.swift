@@ -170,14 +170,26 @@ public struct Sandbox: Sendable {
     }
 
     /// Current working directory. Derived from the active sandbox's
-    /// environment `PWD` key when set; otherwise falls back to the
-    /// process CWD via `FileManager.default.currentDirectoryPath`.
+    /// environment `PWD` key when a sandbox is set; otherwise reads
+    /// the OS CWD directly via
+    /// `FileManager.default.currentDirectoryPath`.
+    ///
+    /// **Why the asymmetry**: `PWD` in the host process env is a
+    /// shell convention, not an OS guarantee — an embedder that
+    /// calls `chdir(2)` / `FileManager.changeCurrentDirectoryPath(_:)`
+    /// without also rewriting `PWD` will leave the variable stale.
+    /// Outside a sandbox we want the actual OS CWD so relative-path
+    /// resolution stays consistent with what `getcwd(3)` reports.
+    /// Inside a sandbox the embedder owns the env semantics — it's
+    /// expected to keep `environment()["PWD"]` in sync with whatever
+    /// notion of CWD it presents to SwiftPorts code.
     ///
     /// CLI commands resolving relative argv paths should use this
     /// (or `resolve(_:)`) instead of `FileManager.default.currentDirectoryPath`
-    /// so that embedders can confine path resolution to the sandbox.
+    /// so embedders can confine path resolution to the sandbox.
     public static var currentDirectory: URL {
-        if let pwd = env("PWD"), !pwd.isEmpty {
+        if let current,
+           let pwd = current.environment()["PWD"], !pwd.isEmpty {
             return URL(fileURLWithPath: pwd, isDirectory: true)
         }
         return URL(

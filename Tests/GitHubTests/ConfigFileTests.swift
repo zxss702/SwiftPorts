@@ -1,4 +1,5 @@
 import Foundation
+import Sandbox
 import Testing
 @testable import GitHub
 
@@ -109,5 +110,97 @@ import Testing
         let source = TokenSource.detect(
             env: [:], configToken: "from-keychain", hostsToken: nil)
         #expect(source == .secretStore)
+    }
+
+    // MARK: - defaultPath resolution
+    //
+    // Regressions for chatgpt-codex-connector PR #17 review comment.
+    // Mirror upstream gh's resolution order: $XDG_CONFIG_HOME wins;
+    // otherwise $HOME/.config; otherwise the platform home. The
+    // $HOME fallback matters for CI / wrapper scripts that set
+    // HOME=/tmp/... to keep gh credentials out of the real user home.
+
+    @Test func defaultPathHonorsXDGConfigHomeFromSandbox() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("xdg-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let sandbox = Sandbox.rooted(
+            at: temp,
+            environment: { ["XDG_CONFIG_HOME": "/custom/xdg"] })
+        await Sandbox.$current.withValue(sandbox) {
+            #expect(ConfigFileStore.defaultPath.path
+                    == "/custom/xdg/gh/config.yml")
+            #expect(HostsFileStore.defaultPath.path
+                    == "/custom/xdg/gh/hosts.yml")
+        }
+    }
+
+    @Test func defaultPathHonorsHomeOverrideWhenXDGUnset() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("home-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let sandbox = Sandbox.rooted(
+            at: temp,
+            environment: { ["HOME": "/custom/home"] })
+        await Sandbox.$current.withValue(sandbox) {
+            #expect(ConfigFileStore.defaultPath.path
+                    == "/custom/home/.config/gh/config.yml")
+            #expect(HostsFileStore.defaultPath.path
+                    == "/custom/home/.config/gh/hosts.yml")
+        }
+    }
+
+    @Test func defaultPathPrefersXDGOverHome() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("both-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let sandbox = Sandbox.rooted(
+            at: temp,
+            environment: { ["XDG_CONFIG_HOME": "/x", "HOME": "/h"] })
+        await Sandbox.$current.withValue(sandbox) {
+            // XDG wins; HOME is ignored when XDG is set.
+            #expect(ConfigFileStore.defaultPath.path == "/x/gh/config.yml")
+            #expect(HostsFileStore.defaultPath.path == "/x/gh/hosts.yml")
+        }
+    }
+
+    @Test func defaultPathFallsBackToPlatformHomeWhenBothUnset() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("none-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+        // Empty env — neither XDG nor HOME supplied.
+        let sandbox = Sandbox.rooted(at: temp, environment: { [:] })
+        await Sandbox.$current.withValue(sandbox) {
+            // Falls through to Sandbox.homeDirectory (the rooted
+            // sandbox places it at <root>/home).
+            #expect(ConfigFileStore.defaultPath.path
+                    == sandbox.homeDirectory.appendingPathComponent(
+                        ".config/gh/config.yml").path)
+            #expect(HostsFileStore.defaultPath.path
+                    == sandbox.homeDirectory.appendingPathComponent(
+                        ".config/gh/hosts.yml").path)
+        }
+    }
+
+    /// Without an active sandbox, the host process's `$HOME` env var
+    /// must still be honored (preserves CI / wrapper-script use of
+    /// `HOME=/tmp/... gh ...` to keep credentials out of the user
+    /// home). When `$HOME` isn't set on the host either, the
+    /// platform default applies.
+    @Test func defaultPathHonorsHostHOMEWhenNoSandbox() {
+        guard Sandbox.current == nil else {
+            Issue.record("test requires no sandbox set"); return
+        }
+        if let home = ProcessInfo.processInfo.environment["HOME"], !home.isEmpty,
+           ProcessInfo.processInfo.environment["XDG_CONFIG_HOME", default: ""].isEmpty {
+            // Host has HOME set, no XDG override → defaultPath should
+            // be under host HOME.
+            let expected = URL(fileURLWithPath: home, isDirectory: true)
+                .appendingPathComponent(".config/gh/config.yml").path
+            #expect(ConfigFileStore.defaultPath.path == expected)
+            let expectedHosts = URL(fileURLWithPath: home, isDirectory: true)
+                .appendingPathComponent(".config/gh/hosts.yml").path
+            #expect(HostsFileStore.defaultPath.path == expectedHosts)
+        }
     }
 }

@@ -621,7 +621,7 @@ let package = Package(
         .testTarget(
             name: "GitHubTests",
             dependencies: [
-                "GitHub", "GhCommand", "ForgeKit",
+                "GitHub", "GhCommand", "ForgeKit", "Sandbox",
                 "JqKit", "Lz4Kit", "TarKit", "XzKit", "ZipKit",
             ],
             resources: [

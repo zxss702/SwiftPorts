@@ -66,9 +66,22 @@ public struct HostsFileStore: Sendable {
     }
 
     public static var defaultPath: URL {
+        // Resolution order (matches upstream gh):
+        //   1. $XDG_CONFIG_HOME/gh/hosts.yml
+        //   2. $HOME/.config/gh/hosts.yml
+        //   3. <platform home>/.config/gh/hosts.yml
+        // Steps 1 and 2 honor explicit env overrides — important for
+        // CI / wrapper scripts that set HOME=/tmp/... to keep gh
+        // credentials out of the real user home. Inside a sandbox
+        // these come from `Sandbox.environment`; outside, from
+        // `ProcessInfo.processInfo.environment`. The platform-home
+        // fallback is only used when both are unset.
         let configDir: URL
         if let xdg = Sandbox.env("XDG_CONFIG_HOME"), !xdg.isEmpty {
             configDir = URL(fileURLWithPath: xdg, isDirectory: true)
+        } else if let home = Sandbox.env("HOME"), !home.isEmpty {
+            configDir = URL(fileURLWithPath: home, isDirectory: true)
+                .appendingPathComponent(".config", isDirectory: true)
         } else {
             // Sandbox.homeDirectory handles iOS-availability internally
             // (NSHomeDirectory on iOS, FileManager on macOS/Linux).
