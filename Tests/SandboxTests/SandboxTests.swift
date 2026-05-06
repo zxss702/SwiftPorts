@@ -64,8 +64,13 @@ import Testing
         // contract: `Sandbox.currentDirectory.path` must always equal
         // `FileManager.default.currentDirectoryPath` outside a sandbox.)
         #expect(Sandbox.current == nil, "test requires no sandbox set")
-        let osCWD = FileManager.default.currentDirectoryPath
-        #expect(Sandbox.currentDirectory.path == osCWD)
+        // Compare via standardized URL form so Windows path separators
+        // (`\` from FileManager vs `/` from URL.path) don't trip the
+        // string compare.
+        let osCWD = URL(
+            fileURLWithPath: FileManager.default.currentDirectoryPath,
+            isDirectory: true).standardizedFileURL
+        #expect(Sandbox.currentDirectory.standardizedFileURL == osCWD)
     }
 }
 

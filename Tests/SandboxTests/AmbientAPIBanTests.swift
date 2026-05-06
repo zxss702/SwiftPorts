@@ -64,10 +64,17 @@ import Testing
         let sourcesURL = repoRoot().appendingPathComponent("Sources", isDirectory: true)
         let sandboxURL = sourcesURL.appendingPathComponent("Sandbox", isDirectory: true)
 
+        // Use pathComponents instead of string-prefix so Windows path
+        // separator differences (`\` from FileManager enumerator vs
+        // `/` from URL.path) don't break the "is this file under
+        // Sources/Sandbox?" check.
+        let sandboxComponents = sandboxURL.standardizedFileURL.pathComponents
         let allSwiftFiles = try collectSwiftFiles(under: sourcesURL)
-        let auditFiles = allSwiftFiles.filter {
-            !$0.path.hasPrefix(sandboxURL.path + "/")
-                && $0.path != sandboxURL.path
+        let auditFiles = allSwiftFiles.filter { file in
+            let fileComponents = file.standardizedFileURL.pathComponents
+            guard fileComponents.count > sandboxComponents.count else { return true }
+            return Array(fileComponents.prefix(sandboxComponents.count))
+                != sandboxComponents
         }
 
         var violations: [(file: URL, line: Int, needle: String, advice: String)] = []
