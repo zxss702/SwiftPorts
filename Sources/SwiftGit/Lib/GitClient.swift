@@ -103,8 +103,15 @@ public struct GitClient: ForgeKit.GitClient {
         try await Sandbox.authorize(url)
         let destURL = directory ?? defaultCloneDirectory(for: url)
         try await Sandbox.authorize(destURL)
+        // Tier-2 (#18): apply env→option bridge before clone so the
+        // freshly-init'd repo's config is loaded against the sandbox.
+        try Libgit2Sandboxing.shared.runIsolated(Sandbox.current) {
+            try cloneInner(url: url, dest: destURL.path)
+        }
+    }
+
+    private func cloneInner(url: URL, dest: String) throws {
         Libgit2.ensureInitialized()
-        let dest = destURL.path
 
         var opts = git_clone_options()
         try check(git_clone_options_init(&opts, UInt32(GIT_CLONE_OPTIONS_VERSION)))
@@ -436,11 +443,17 @@ public struct GitClient: ForgeKit.GitClient {
 
     internal func withRepository<T>(_ body: (OpaquePointer?) throws -> T) async throws -> T {
         try await Sandbox.authorize(workingDirectory)
-        Libgit2.ensureInitialized()
-        var repo: OpaquePointer?
-        try check(git_repository_open_ext(&repo, workingDirectory.path, 0, nil))
-        defer { git_repository_free(repo) }
-        return try body(repo)
+        // Tier-2 (#18): bridge sandbox env to libgit2's process-global
+        // option block before opening the repo. The repo's frozen
+        // config is then loaded against the sandbox's view, not the
+        // host process env.
+        return try Libgit2Sandboxing.shared.runIsolated(Sandbox.current) {
+            Libgit2.ensureInitialized()
+            var repo: OpaquePointer?
+            try check(git_repository_open_ext(&repo, workingDirectory.path, 0, nil))
+            defer { git_repository_free(repo) }
+            return try body(repo)
+        }
     }
 
     /// `<src>:<dst>` form has both sides; bare ref like `main` means

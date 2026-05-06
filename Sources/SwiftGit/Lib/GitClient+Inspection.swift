@@ -28,44 +28,36 @@ extension GitClient {
     /// matched by a `.gitignore` rule. Throws on libgit2 failure;
     /// `false` if the path doesn't exist or isn't ignored.
     public func isIgnored(_ path: String) async throws -> Bool {
-        try await Sandbox.authorize(workingDirectory)
-        Libgit2.ensureInitialized()
-        var repo: OpaquePointer?
-        try check(git_repository_open_ext(&repo, workingDirectory.path, 0, nil))
-        defer { git_repository_free(repo) }
-
-        var ignored: Int32 = 0
-        try check(git_ignore_path_is_ignored(&ignored, repo, path))
-        return ignored != 0
+        try await withRepository { repo in
+            var ignored: Int32 = 0
+            try check(git_ignore_path_is_ignored(&ignored, repo, path))
+            return ignored != 0
+        }
     }
 
     /// Local branch names in the repo. Order matches libgit2's iterator
     /// (typically refdb order — alphabetical for refs/heads/*).
     public func localBranches() async throws -> [String] {
-        try await Sandbox.authorize(workingDirectory)
-        Libgit2.ensureInitialized()
-        var repo: OpaquePointer?
-        try check(git_repository_open_ext(&repo, workingDirectory.path, 0, nil))
-        defer { git_repository_free(repo) }
+        try await withRepository { repo in
+            var iter: OpaquePointer?
+            try check(git_branch_iterator_new(&iter, repo, GIT_BRANCH_LOCAL))
+            defer { git_branch_iterator_free(iter) }
 
-        var iter: OpaquePointer?
-        try check(git_branch_iterator_new(&iter, repo, GIT_BRANCH_LOCAL))
-        defer { git_branch_iterator_free(iter) }
-
-        var names: [String] = []
-        while true {
-            try Task.checkCancellation()
-            var ref: OpaquePointer?
-            var branchType = GIT_BRANCH_LOCAL
-            let rc = git_branch_next(&ref, &branchType, iter)
-            if rc == GIT_ITEROVER.rawValue { break }
-            try check(rc)
-            defer { git_reference_free(ref) }
-            if let cstr = git_branch_name_cstr(ref) {
-                names.append(String(cString: cstr))
+            var names: [String] = []
+            while true {
+                try Task.checkCancellation()
+                var ref: OpaquePointer?
+                var branchType = GIT_BRANCH_LOCAL
+                let rc = git_branch_next(&ref, &branchType, iter)
+                if rc == GIT_ITEROVER.rawValue { break }
+                try check(rc)
+                defer { git_reference_free(ref) }
+                if let cstr = git_branch_name_cstr(ref) {
+                    names.append(String(cString: cstr))
+                }
             }
+            return names
         }
-        return names
     }
 }
 
@@ -137,21 +129,17 @@ extension GitClient {
     /// `git config remote.<name>.url` existence; used by `git remote add`
     /// to fail fast with the same error wording git uses.
     public func remoteExists(named name: String) async throws -> Bool {
-        try await Sandbox.authorize(workingDirectory)
-        Libgit2.ensureInitialized()
-        var repo: OpaquePointer?
-        try check(git_repository_open_ext(&repo, workingDirectory.path, 0, nil))
-        defer { git_repository_free(repo) }
-
-        var remote: OpaquePointer?
-        let rc = git_remote_lookup(&remote, repo, name)
-        if rc == 0 {
-            git_remote_free(remote)
-            return true
+        try await withRepository { repo in
+            var remote: OpaquePointer?
+            let rc = git_remote_lookup(&remote, repo, name)
+            if rc == 0 {
+                git_remote_free(remote)
+                return true
+            }
+            if rc == GIT_ENOTFOUND.rawValue { return false }
+            try check(rc)
+            return false
         }
-        if rc == GIT_ENOTFOUND.rawValue { return false }
-        try check(rc)
-        return false
     }
 
     /// Delete a local branch. Equivalent to `git branch -d <name>`

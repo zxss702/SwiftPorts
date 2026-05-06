@@ -22,6 +22,19 @@ extension GitClient {
         reinit: Bool = false
     ) async throws -> URL {
         try await Sandbox.authorize(workingDirectory)
+        // Tier-2 (#18): apply env→option bridge before init so the
+        // freshly-created repo's seeded config is loaded against the
+        // sandbox's view, not the host's.
+        try Libgit2Sandboxing.shared.runIsolated(Sandbox.current) {
+            try initRepositoryInner(
+                bare: bare, initialBranch: initialBranch, reinit: reinit)
+        }
+        return workingDirectory
+    }
+
+    private func initRepositoryInner(
+        bare: Bool, initialBranch: String?, reinit: Bool
+    ) throws {
         Libgit2.ensureInitialized()
         try FileManager.default.createDirectory(
             at: workingDirectory, withIntermediateDirectories: true)
@@ -48,6 +61,5 @@ extension GitClient {
             try check(git_repository_init_ext(&repo, workingDirectory.path, &opts))
         }
         git_repository_free(repo)
-        return workingDirectory
     }
 }

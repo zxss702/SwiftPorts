@@ -665,10 +665,24 @@ let package = Package(
             // has any tracked files; the empty dir doesn't survive git checkout.
         ),
 
+        // MARK: CLibgit2Shim — typed C wrappers for the variadic
+        // `git_libgit2_opts(int option, ...)` API. Used by the
+        // Sandbox ↔ libgit2 env-bridge in SwiftGit's
+        // `Libgit2Sandboxing` actor.
+        .target(
+            name: "CLibgit2Shim",
+            dependencies: [
+                .product(name: "libgit2", package: "libgit2"),
+            ],
+            path: "Sources/CLibgit2Shim",
+            publicHeadersPath: "include"
+        ),
+
         // MARK: SwiftGit umbrella (libgit2-backed GitClient + `git` CLI)
         .target(
             name: "SwiftGit",
             dependencies: [
+                "CLibgit2Shim",
                 "ForgeKit",
                 "Sandbox",
                 .product(name: "libgit2", package: "libgit2"),
