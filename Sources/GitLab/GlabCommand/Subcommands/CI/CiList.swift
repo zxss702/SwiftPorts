@@ -38,10 +38,6 @@ struct CiList: AsyncParsableCommand {
     @Flag(name: .long, help: "Print as JSON array.")
     var json: Bool = false
 
-    @Option(name: .customLong("color"),
-            help: "Colorize output: always, auto (default), or never.")
-    var color: ColorChoice = .auto
-
     func run() async throws {
         let target = try await CommandContext.resolveRepo(flag: repo)
         let client = try await CommandContext.apiClient(host: target.host)
@@ -65,7 +61,7 @@ struct CiList: AsyncParsableCommand {
             Shell.print("No pipelines match.")
             return
         }
-        let on = color.resolved()
+        let on = TTY.isStdoutColorEnabled
         for p in pipelines {
             let age = StatusBadge.muted(CiSupport.ageInWords(from: p.createdAt), enabled: on)
             let refLabel = p.ref ?? "—"

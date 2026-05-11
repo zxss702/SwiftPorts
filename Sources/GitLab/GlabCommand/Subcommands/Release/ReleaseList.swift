@@ -17,10 +17,6 @@ struct ReleaseList: AsyncParsableCommand {
     @Option(name: [.short, .customLong("limit")])
     var limit: Int = 30
 
-    @Option(name: .customLong("color"),
-            help: "Colorize output: always, auto (default), or never.")
-    var color: ColorChoice = .auto
-
     func run() async throws {
         let target = try await CommandContext.resolveRepo(flag: repo)
         let client = try await CommandContext.apiClient(host: target.host)
@@ -29,7 +25,7 @@ struct ReleaseList: AsyncParsableCommand {
             query: [URLQueryItem(name: "per_page", value: String(min(limit, 100)))])
         if releases.isEmpty { Shell.print("No releases in \(target.fullPath)."); return }
         let formatter = ISO8601DateFormatter()
-        let on = color.resolved()
+        let on = TTY.isStdoutColorEnabled
         for r in releases.prefix(limit) {
             let when = r.releasedAt.map { formatter.string(from: $0) } ?? ""
             let title = r.name ?? r.tagName

@@ -21,10 +21,6 @@ struct ReleaseView: AsyncParsableCommand {
     @Flag(name: .long, help: "Print the JSON response body.")
     var json: Bool = false
 
-    @Option(name: .customLong("color"),
-            help: "Colorize output: always, auto (default), or never.")
-    var color: ColorChoice = .auto
-
     func run() async throws {
         let target = try await CommandContext.resolveRepo(flag: repo)
         let client = try await CommandContext.apiClient(host: target.host)
@@ -37,7 +33,7 @@ struct ReleaseView: AsyncParsableCommand {
             return
         }
 
-        let on = color.resolved()
+        let on = TTY.isStdoutColorEnabled
         let title = release.name ?? release.tagName
         if let url = release._links?.selfLink {
             Shell.print(OSC8.wrap(title, url: url.absoluteString, enabled: on))

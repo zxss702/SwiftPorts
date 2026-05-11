@@ -54,10 +54,6 @@ struct RepoList: AsyncParsableCommand {
     @Flag(name: .long, help: "Print as JSON array.")
     var json: Bool = false
 
-    @Option(name: .customLong("color"),
-            help: "Colorize output: always, auto (default), or never.")
-    var color: ColorChoice = .auto
-
     func run() async throws {
         let client = try await CommandContext.apiClient(host: hostname)
 
@@ -98,7 +94,7 @@ struct RepoList: AsyncParsableCommand {
             Shell.print("No projects match.")
             return
         }
-        let on = color.resolved()
+        let on = TTY.isStdoutColorEnabled
         for p in projects {
             let archivedTag = (p.archived == true)
                 ? "  " + StatusBadge.failure("(archived)", enabled: on)

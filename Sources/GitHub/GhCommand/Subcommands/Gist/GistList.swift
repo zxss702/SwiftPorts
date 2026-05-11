@@ -20,10 +20,6 @@ struct GistList: AsyncParsableCommand {
     @Flag(name: .long, help: "Only show secret gists.")
     var secretOnly: Bool = false
 
-    @Option(name: .customLong("color"),
-            help: "Colorize output: always, auto (default), or never.")
-    var color: ColorChoice = .auto
-
     func run() async throws {
         let client = try await CommandContext.apiClient()
         let perPage = min(limit, 100)
@@ -41,7 +37,7 @@ struct GistList: AsyncParsableCommand {
             Shell.print("No gists found.")
             return
         }
-        let on = color.resolved()
+        let on = TTY.isStdoutColorEnabled
         for g in trimmed {
             let visibility = g.public
                 ? StatusBadge.open("public", enabled: on)

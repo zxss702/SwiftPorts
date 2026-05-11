@@ -29,10 +29,6 @@ struct CiView: AsyncParsableCommand {
     @Flag(name: .long, help: "Print as JSON.")
     var json: Bool = false
 
-    @Option(name: .customLong("color"),
-            help: "Colorize output: always, auto (default), or never.")
-    var color: ColorChoice = .auto
-
     func run() async throws {
         let target = try await CommandContext.resolveRepo(flag: repo)
         let client = try await CommandContext.apiClient(host: target.host)
@@ -68,7 +64,7 @@ struct CiView: AsyncParsableCommand {
             return
         }
 
-        let on = color.resolved()
+        let on = TTY.isStdoutColorEnabled
         Self.printPipelineHeader(pipeline, enabled: on)
         Self.printJobsByStage(jobs, enabled: on)
     }

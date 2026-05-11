@@ -25,10 +25,6 @@ struct IssueView: AsyncParsableCommand {
     @Flag(name: .long, help: "Also fetch and print the issue's comments.")
     var comments: Bool = false
 
-    @Option(name: .customLong("color"),
-            help: "Colorize output: always, auto (default), or never.")
-    var color: ColorChoice = .auto
-
     func run() async throws {
         let target = try await RepositoryResolver.resolve(flag: repo)
 
@@ -53,7 +49,7 @@ struct IssueView: AsyncParsableCommand {
         let issue: Issue = try await client.get(
             "repos/\(target.slug)/issues/\(number)")
 
-        let on = color.resolved()
+        let on = TTY.isStdoutColorEnabled
         let numberToken = OSC8.wrap("#\(issue.number)", url: issue.htmlUrl.absoluteString, enabled: on)
         Shell.print("\(ANSI.bold(numberToken))  \(ANSI.bold(issue.title))")
         let stateLabel = issue.state == .open

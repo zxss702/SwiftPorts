@@ -25,10 +25,6 @@ struct PrView: AsyncParsableCommand {
     @Flag(name: .long, help: "Also fetch and print the PR's comments.")
     var comments: Bool = false
 
-    @Option(name: .customLong("color"),
-            help: "Colorize output: always, auto (default), or never.")
-    var color: ColorChoice = .auto
-
     func run() async throws {
         let target = try await RepositoryResolver.resolve(flag: repo)
 
@@ -53,7 +49,7 @@ struct PrView: AsyncParsableCommand {
         let pr: PullRequest = try await client.get(
             "repos/\(target.slug)/pulls/\(number)")
 
-        let on = color.resolved()
+        let on = TTY.isStdoutColorEnabled
         let numberToken = OSC8.wrap("#\(pr.number)", url: pr.htmlUrl.absoluteString, enabled: on)
         Shell.print("\(ANSI.bold(numberToken))  \(ANSI.bold(pr.title))")
         let stateLabel: String

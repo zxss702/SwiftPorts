@@ -37,10 +37,6 @@ struct RunList: AsyncParsableCommand {
             help: "Output JSON with the specified fields (comma-separated).")
     var json: String?
 
-    @Option(name: .customLong("color"),
-            help: "Colorize output: always, auto (default), or never.")
-    var color: ColorChoice = .auto
-
     func run() async throws {
         let target = try await RepositoryResolver.resolve(flag: repo)
         let client = try await CommandContext.apiClient()
@@ -71,7 +67,7 @@ struct RunList: AsyncParsableCommand {
             Shell.print("No runs match.")
             return
         }
-        let on = color.resolved()
+        let on = TTY.isStdoutColorEnabled
         for run in trimmed {
             let rawStatus = run.conclusion ?? run.status ?? "?"
             let status: String

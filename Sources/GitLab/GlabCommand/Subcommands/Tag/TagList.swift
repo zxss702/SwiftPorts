@@ -21,10 +21,6 @@ struct TagList: AsyncParsableCommand {
             help: "Search filter (substring of tag name).")
     var search: String?
 
-    @Option(name: .customLong("color"),
-            help: "Colorize output: always, auto (default), or never.")
-    var color: ColorChoice = .auto
-
     func run() async throws {
         let target = try await CommandContext.resolveRepo(flag: repo)
         let client = try await CommandContext.apiClient(host: target.host)
@@ -41,7 +37,7 @@ struct TagList: AsyncParsableCommand {
             "projects/\(target.encodedPath)/repository/tags",
             query: query)
         if tags.isEmpty { Shell.print("No tags."); return }
-        let on = color.resolved()
+        let on = TTY.isStdoutColorEnabled
         let projectWebBase = project?.webUrl.absoluteString
         for tag in tags.prefix(limit) {
             let commit = tag.commit?.shortId ?? tag.commit?.id.prefix(7).description ?? ""

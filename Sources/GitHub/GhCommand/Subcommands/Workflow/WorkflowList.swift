@@ -21,10 +21,6 @@ struct WorkflowList: AsyncParsableCommand {
             help: "Output JSON with the specified fields (comma-separated).")
     var json: String?
 
-    @Option(name: .customLong("color"),
-            help: "Colorize output: always, auto (default), or never.")
-    var color: ColorChoice = .auto
-
     func run() async throws {
         let target = try await RepositoryResolver.resolve(flag: repo)
         let client = try await CommandContext.apiClient()
@@ -42,7 +38,7 @@ struct WorkflowList: AsyncParsableCommand {
             Shell.print("No workflows in \(target.slug).")
             return
         }
-        let on = color.resolved()
+        let on = TTY.isStdoutColorEnabled
         for w in trimmed {
             let stateText = w.state.rawValue
             let state: String

@@ -26,10 +26,6 @@ struct ProjectList: AsyncParsableCommand {
             help: "Output format: {json}.")
     var format: ProjectFormat?
 
-    @Option(name: .customLong("color"),
-            help: "Colorize output: always, auto (default), or never.")
-    var color: ColorChoice = .auto
-
     func run() async throws {
         let client = try await CommandContext.graphQLClient()
         let connection: ProjectV2Connection
@@ -74,7 +70,7 @@ struct ProjectList: AsyncParsableCommand {
             return
         }
         Shell.print("Showing \(trimmed.count) of \(connection.totalCount ?? trimmed.count) projects.")
-        let on = color.resolved()
+        let on = TTY.isStdoutColorEnabled
         for p in trimmed {
             let visibility = p.public
                 ? StatusBadge.open("public",  enabled: on)

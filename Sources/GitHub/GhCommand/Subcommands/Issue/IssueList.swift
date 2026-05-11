@@ -35,10 +35,6 @@ struct IssueList: AsyncParsableCommand {
             help: "Output JSON with the specified fields (comma-separated).")
     var json: String?
 
-    @Option(name: .customLong("color"),
-            help: "Colorize output: always, auto (default), or never.")
-    var color: ColorChoice = .auto
-
     func run() async throws {
         let target = try await RepositoryResolver.resolve(flag: repo)
 
@@ -82,7 +78,7 @@ struct IssueList: AsyncParsableCommand {
             Shell.print("No issues match.")
             return
         }
-        let on = color.resolved()
+        let on = TTY.isStdoutColorEnabled
         for i in trimmed {
             let number = OSC8.wrap("#\(i.number)", url: i.htmlUrl.absoluteString, enabled: on)
             let state = i.state == .open

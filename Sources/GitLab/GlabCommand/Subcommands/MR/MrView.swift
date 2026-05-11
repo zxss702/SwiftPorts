@@ -30,10 +30,6 @@ struct MrView: AsyncParsableCommand {
     @Flag(name: .long, help: "Print as JSON.")
     var json: Bool = false
 
-    @Option(name: .customLong("color"),
-            help: "Colorize output: always, auto (default), or never.")
-    var color: ColorChoice = .auto
-
     func run() async throws {
         let (target, iid) = try await MrSupport.resolveTarget(
             argument: mr, explicitRepo: repo)
@@ -64,7 +60,7 @@ struct MrView: AsyncParsableCommand {
             return
         }
 
-        let on = color.resolved()
+        let on = TTY.isStdoutColorEnabled
         let titleSuffix = (merge.draft == true || merge.workInProgress == true)
             ? "  " + StatusBadge.draft("(draft)", enabled: on) : ""
         let iidToken = OSC8.wrap("!\(merge.iid)", url: merge.webUrl.absoluteString, enabled: on)

@@ -23,10 +23,6 @@ struct ReleaseView: AsyncParsableCommand {
             help: "Output JSON with the specified fields (comma-separated).")
     var json: String?
 
-    @Option(name: .customLong("color"),
-            help: "Colorize output: always, auto (default), or never.")
-    var color: ColorChoice = .auto
-
     func run() async throws {
         let target = try await RepositoryResolver.resolve(flag: repo)
         let client = try await CommandContext.apiClient()
@@ -47,7 +43,7 @@ struct ReleaseView: AsyncParsableCommand {
             return
         }
 
-        let on = color.resolved()
+        let on = TTY.isStdoutColorEnabled
         let tagToken = OSC8.wrap(release.tagName, url: release.htmlUrl.absoluteString, enabled: on)
         Shell.print("\(ANSI.bold(tagToken))  \(release.name ?? "")")
         if release.draft {

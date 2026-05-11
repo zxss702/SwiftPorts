@@ -71,10 +71,6 @@ struct MrList: AsyncParsableCommand {
     @Flag(name: .long, help: "Print as JSON array.")
     var json: Bool = false
 
-    @Option(name: .customLong("color"),
-            help: "Colorize output: always, auto (default), or never.")
-    var color: ColorChoice = .auto
-
     func run() async throws {
         let target = try await CommandContext.resolveRepo(flag: repo)
         let client = try await CommandContext.apiClient(host: target.host)
@@ -129,7 +125,7 @@ struct MrList: AsyncParsableCommand {
             Shell.print("No merge requests match.")
             return
         }
-        let on = color.resolved()
+        let on = TTY.isStdoutColorEnabled
         for mr in mrs {
             let iidToken = OSC8.wrap("!\(mr.iid)", url: mr.webUrl.absoluteString, enabled: on)
             let stateLabel = MrSupport.renderState(mr.state, enabled: on)

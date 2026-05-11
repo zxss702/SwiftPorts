@@ -37,10 +37,6 @@ struct RepoList: AsyncParsableCommand {
             help: "Output JSON with the specified fields (comma-separated).")
     var json: String?
 
-    @Option(name: .customLong("color"),
-            help: "Colorize output: always, auto (default), or never.")
-    var color: ColorChoice = .auto
-
     func run() async throws {
         if let json {
             let fields = try JSONFieldSelector.parse(raw: json, fieldMap: RepoFields.map)
@@ -92,7 +88,7 @@ struct RepoList: AsyncParsableCommand {
             Shell.print("No repositories.")
             return
         }
-        let on = color.resolved()
+        let on = TTY.isStdoutColorEnabled
         for r in trimmed {
             let visText = r.visibility?.rawValue ?? (r.private ? "private" : "public")
             // Color the visibility column the same way real `gh` does:

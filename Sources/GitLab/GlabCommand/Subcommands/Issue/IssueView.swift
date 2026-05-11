@@ -30,10 +30,6 @@ struct IssueView: AsyncParsableCommand {
     @Flag(name: .long, help: "Print as JSON.")
     var json: Bool = false
 
-    @Option(name: .customLong("color"),
-            help: "Colorize output: always, auto (default), or never.")
-    var color: ColorChoice = .auto
-
     func run() async throws {
         let parsed = try IssueArgument.parse(issue)
         let target: RepositoryReference
@@ -72,7 +68,7 @@ struct IssueView: AsyncParsableCommand {
             return
         }
 
-        let on = color.resolved()
+        let on = TTY.isStdoutColorEnabled
         let stateLabel: String = issue.state == .opened
             ? StatusBadge.open("opened", enabled: on)
             : StatusBadge.closed(issue.state.rawValue, enabled: on)
