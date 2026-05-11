@@ -24,7 +24,9 @@ struct GistView: AsyncParsableCommand {
             guard let file = gist.files[filename] else {
                 throw ValidationError("Gist has no file '\(filename)'.")
             }
-            if let content = file.content { Shell.print(content) }
+            if let content = file.content {
+                Shell.print(Self.renderFileContent(content, language: file.language))
+            }
             return
         }
         Shell.print("\(gist.id)  \(gist.description ?? "")")
@@ -35,10 +37,19 @@ struct GistView: AsyncParsableCommand {
         for (name, file) in gist.files.sorted(by: { $0.key < $1.key }) {
             Shell.print("\n# \(name) (\(file.language ?? file.type))")
             if let content = file.content {
-                Shell.print(content)
+                Shell.print(Self.renderFileContent(content, language: file.language))
             } else {
                 Shell.print("[truncated, fetch raw at \(file.rawUrl.absoluteString)]")
             }
         }
+    }
+
+    /// Run a gist file's content through GlamKit when its `language`
+    /// is `"Markdown"` — same rule the upstream `gh` CLI uses. Any
+    /// other language (code, plain text, …) prints as-is so syntax
+    /// stays valid for downstream processing.
+    private static func renderFileContent(_ content: String, language: String?) -> String {
+        guard language == "Markdown" else { return content }
+        return MarkdownBody.render(content)
     }
 }

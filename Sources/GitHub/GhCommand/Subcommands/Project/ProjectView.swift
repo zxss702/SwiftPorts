@@ -73,7 +73,7 @@ struct ProjectView: AsyncParsableCommand {
         Shell.print("created: \(ISO8601DateFormatter().string(from: project.createdAt))")
         Shell.print("url: \(project.url.absoluteString)")
         if let readme = project.readme, !readme.isEmpty {
-            Shell.print("\n--\n\(readme)")
+            Shell.print("\n--\n\(MarkdownBody.render(readme))")
         }
     }
 }
