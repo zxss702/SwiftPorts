@@ -18,14 +18,6 @@ struct RepoView: AsyncParsableCommand {
             help: "Output JSON with the specified fields (comma-separated).")
     var json: String?
 
-    @Flag(name: .long,
-          help: "Print the repository's README rendered through GlamKit instead of the metadata.")
-    var readme: Bool = false
-
-    @Option(name: .customLong("color"),
-            help: "Colorize output: always, auto (default), or never.")
-    var color: ColorChoice = .auto
-
     func run() async throws {
         let target = try await RepositoryResolver.resolve(positional: repository)
 
@@ -46,20 +38,8 @@ struct RepoView: AsyncParsableCommand {
         }
 
         let client = try await CommandContext.apiClient()
-
-        if readme {
-            let content: RepositoryContent = try await client.get(
-                "repos/\(target.slug)/readme")
-            if let text = content.decodedContent(), !text.isEmpty {
-                Shell.print(Glam.renderBody(text))
-            } else {
-                Shell.print("(README is empty or could not be decoded)")
-            }
-            return
-        }
-
         let repo: Repository = try await client.get("repos/\(target.slug)")
-        let on = color.resolved()
+        let on = TTY.isStdoutColorEnabled
         let nameToken = OSC8.wrap(repo.fullName, url: repo.htmlUrl.absoluteString, enabled: on)
         Shell.print(ANSI.bold(nameToken))
         let visibility = repo.private ? "private" : "public"
@@ -90,5 +70,28 @@ struct RepoView: AsyncParsableCommand {
         if let topics = repo.topics, !topics.isEmpty {
             Shell.print("topics: \(topics.joined(separator: ", "))")
         }
+
+        // README is rendered by default — that's what upstream `gh repo
+        // view` does, and what `gh repo view OWNER/REPO` users expect
+        // to see. A 404 (no README in the repo) is non-fatal — we just
+        // skip the section silently, matching upstream's behavior.
+        if let rendered = try? await Self.fetchAndRenderReadme(client: client, slug: target.slug),
+           !rendered.isEmpty {
+            Shell.print("")
+            Shell.print(rendered)
+        }
+    }
+
+    /// Fetch the repository's README via the contents API and run
+    /// it through GlamKit. Returns `nil` when no README exists or
+    /// the payload couldn't be decoded — absence is non-fatal,
+    /// matching upstream `gh repo view`.
+    private static func fetchAndRenderReadme(
+        client: APIClient,
+        slug: String
+    ) async throws -> String? {
+        let content: RepositoryContent = try await client.get("repos/\(slug)/readme")
+        guard let text = content.decodedContent(), !text.isEmpty else { return nil }
+        return Glam.renderBody(text)
     }
 }
