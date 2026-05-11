@@ -24,6 +24,13 @@ struct GistView: AsyncParsableCommand {
             guard let file = gist.files[filename] else {
                 throw ValidationError("Gist has no file '\(filename)'.")
             }
+            // `--filename` is the path that scripts use to fetch a
+            // single file's raw bytes (`gh gist view ID --filename
+            // README.md > local.md`). Run nothing through Glam here
+            // — rendering Markdown would change the bytes the user
+            // gets, which is a regression vs. the previous raw
+            // passthrough. The all-files listing path below still
+            // renders for human-readable display.
             if let content = file.content { Shell.print(content) }
             return
         }
@@ -35,10 +42,19 @@ struct GistView: AsyncParsableCommand {
         for (name, file) in gist.files.sorted(by: { $0.key < $1.key }) {
             Shell.print("\n# \(name) (\(file.language ?? file.type))")
             if let content = file.content {
-                Shell.print(content)
+                Shell.print(Self.renderFileContent(content, language: file.language))
             } else {
                 Shell.print("[truncated, fetch raw at \(file.rawUrl.absoluteString)]")
             }
         }
+    }
+
+    /// Run a gist file's content through GlamKit when its `language`
+    /// is `"Markdown"` — same rule the upstream `gh` CLI uses for the
+    /// all-files listing. Only the human-readable listing path uses
+    /// this; the `--filename` path stays raw (see `run`).
+    private static func renderFileContent(_ content: String, language: String?) -> String {
+        guard language == "Markdown" else { return content }
+        return MarkdownBody.render(content)
     }
 }
