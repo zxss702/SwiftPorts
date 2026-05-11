@@ -57,7 +57,7 @@ struct IssueView: AsyncParsableCommand {
         }
         Shell.print("url: \(issue.htmlUrl.absoluteString)")
         if let body = issue.body, !body.isEmpty {
-            Shell.print("\n--\n\(body)")
+            Shell.print("\n--\n\(MarkdownBody.render(body))")
         }
         if comments {
             try await renderComments(target: target, client: client)
@@ -77,7 +77,7 @@ struct IssueView: AsyncParsableCommand {
         for comment in list {
             Shell.print("\n@\(comment.user.login)  \(f.string(from: comment.createdAt))")
             if let body = comment.body, !body.isEmpty {
-                Shell.print(body)
+                Shell.print(MarkdownBody.render(body))
             }
         }
     }

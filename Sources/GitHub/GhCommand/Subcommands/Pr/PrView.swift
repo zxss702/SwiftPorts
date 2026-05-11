@@ -65,7 +65,7 @@ struct PrView: AsyncParsableCommand {
         }
         Shell.print("url: \(pr.htmlUrl.absoluteString)")
         if let body = pr.body, !body.isEmpty {
-            Shell.print("\n--\n\(body)")
+            Shell.print("\n--\n\(MarkdownBody.render(body))")
         }
         if comments {
             try await renderComments(target: target, client: client)
@@ -87,7 +87,7 @@ struct PrView: AsyncParsableCommand {
         for comment in list {
             Shell.print("\n@\(comment.user.login)  \(f.string(from: comment.createdAt))")
             if let body = comment.body, !body.isEmpty {
-                Shell.print(body)
+                Shell.print(MarkdownBody.render(body))
             }
         }
     }

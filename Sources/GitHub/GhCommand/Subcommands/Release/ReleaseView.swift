@@ -56,7 +56,7 @@ struct ReleaseView: AsyncParsableCommand {
             }
         }
         if let body = release.body, !body.isEmpty {
-            Shell.print("\n--\n\(body)")
+            Shell.print("\n--\n\(MarkdownBody.render(body))")
         }
     }
 }

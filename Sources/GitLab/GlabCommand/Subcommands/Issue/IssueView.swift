@@ -84,7 +84,7 @@ struct IssueView: AsyncParsableCommand {
         }
         Shell.print("url: \(issue.webUrl.absoluteString)")
         if let body = issue.description, !body.isEmpty {
-            Shell.print("\n--\n\(body)")
+            Shell.print("\n--\n\(MarkdownBody.render(body))")
         }
 
         if let userNotes {
@@ -96,7 +96,7 @@ struct IssueView: AsyncParsableCommand {
             for note in userNotes {
                 let when = note.createdAt.map(ISO8601DateFormatter().string(from:)) ?? "?"
                 Shell.print("\n@\(note.author.username)  \(ANSI.dim(when))")
-                Shell.print(note.body)
+                Shell.print(MarkdownBody.render(note.body))
             }
         }
     }

@@ -86,7 +86,7 @@ struct MrView: AsyncParsableCommand {
         }
         Shell.print("url: \(merge.webUrl.absoluteString)")
         if let body = merge.description, !body.isEmpty {
-            Shell.print("\n--\n\(body)")
+            Shell.print("\n--\n\(MarkdownBody.render(body))")
         }
 
         if let userNotes {
@@ -98,7 +98,7 @@ struct MrView: AsyncParsableCommand {
             for note in userNotes {
                 let when = note.createdAt.map(ISO8601DateFormatter().string(from:)) ?? "?"
                 Shell.print("\n@\(note.author.username)  \(ANSI.dim(when))")
-                Shell.print(note.body)
+                Shell.print(MarkdownBody.render(note.body))
             }
         }
     }

@@ -40,7 +40,7 @@ struct ReleaseView: AsyncParsableCommand {
             Shell.print("author: @\(author.username)")
         }
         if let body = release.description, !body.isEmpty {
-            Shell.print("\n\(body)")
+            Shell.print("\n\(MarkdownBody.render(body))")
         }
         if let links = release.assets?.links, !links.isEmpty {
             Shell.print("\nassets:")
