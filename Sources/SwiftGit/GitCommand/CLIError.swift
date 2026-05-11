@@ -9,7 +9,13 @@ import Foundation
 /// Use ``CLIError/stderr(_:exitCode:)`` instead of `throw CommandError`
 /// when the wording matters; ArgumentParser's default formatter would
 /// otherwise prefix our messages with `Error: `.
-public struct CLIError: Error {
+///
+/// Conforming to `LocalizedError` keeps the in-process bash-builtin
+/// path (`ParsableCommandBridge` in SwiftBash) from falling through to
+/// `String(describing:)`, which would otherwise dump the struct as
+/// `CLIError(lines: [...], exitCode: 1)`. Standalone-CLI callers go
+/// through ``emitAndExit()`` and never hit ArgumentParser's formatter.
+public struct CLIError: Error, LocalizedError {
     public let lines: [String]
     public let exitCode: Int32
 
@@ -19,6 +25,10 @@ public struct CLIError: Error {
 
     public static func stderr(_ lines: [String], exitCode: Int32 = 1) -> CLIError {
         CLIError(lines: lines, exitCode: exitCode)
+    }
+
+    public var errorDescription: String? {
+        lines.joined(separator: "\n")
     }
 }
 
