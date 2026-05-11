@@ -21,6 +21,10 @@ struct Status: AsyncParsableCommand {
           help: "Show the branch in the header (always shown in verbose mode).")
     var branch: Bool = false
 
+    @Option(name: .customLong("color"),
+            help: "Colorize output: always, auto (default), or never.")
+    var color: ColorChoice = .auto
+
     func run() async throws {
         let report = try await CommandContext.gitClient().status()
 
@@ -33,7 +37,8 @@ struct Status: AsyncParsableCommand {
         }
 
         // Verbose form.
-        let out = report.verboseFormat()
+        let palette = ColorPalette(enabled: color.resolved())
+        let out = report.verboseFormat(palette: palette)
         Shell.current.stdout.write(Data(out.utf8))
     }
 }

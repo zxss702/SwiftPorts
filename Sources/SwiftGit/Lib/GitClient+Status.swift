@@ -297,8 +297,8 @@ extension StatusReport {
     /// Real-git's verbose `git status` format, including branch line,
     /// per-section headers + hint blocks, and the closing `nothing to
     /// commit` line when applicable.
-    public func verboseFormat() -> String {
-        var out = "On branch \(branchName ?? "HEAD")\n"
+    public func verboseFormat(palette: ColorPalette = .disabled) -> String {
+        var out = "On branch \(palette.branch(branchName ?? "HEAD"))\n"
         if isUnborn {
             // Real git: blank line on either side of `No commits yet`.
             out += "\nNo commits yet\n\n"
@@ -335,11 +335,13 @@ extension StatusReport {
             out += "  (use \"git restore --staged <file>...\" to unstage)\n"
             for e in staged {
                 let label = e.indexState.verboseLabel
+                let line: String
                 if e.indexState == .renamed, let oldPath = e.oldPath {
-                    out += "\t\(label):   \(oldPath) -> \(e.path)\n"
+                    line = "\(label):   \(oldPath) -> \(e.path)"
                 } else {
-                    out += "\t\(label):   \(e.path)\n"
+                    line = "\(label):   \(e.path)"
                 }
+                out += "\t\(palette.staged(line))\n"
             }
             out += "\n"
         }
@@ -350,7 +352,7 @@ extension StatusReport {
             out += "  (use \"git restore <file>...\" to discard changes in working directory)\n"
             for e in unstaged {
                 let label = e.workdirState.verboseLabel
-                out += "\t\(label):   \(e.path)\n"
+                out += "\t\(palette.unstaged("\(label):   \(e.path)"))\n"
             }
             out += "\n"
         }
@@ -359,7 +361,7 @@ extension StatusReport {
             out += "Unmerged paths:\n"
             out += "  (use \"git add <file>...\" to mark resolution)\n"
             for e in conflicts {
-                out += "\tboth modified:   \(e.path)\n"
+                out += "\t\(palette.unstaged("both modified:   \(e.path)"))\n"
             }
             out += "\n"
         }
@@ -368,7 +370,7 @@ extension StatusReport {
             out += "Untracked files:\n"
             out += "  (use \"git add <file>...\" to include in what will be committed)\n"
             for e in untracked {
-                out += "\t\(e.path)\n"
+                out += "\t\(palette.unstaged(e.path))\n"
             }
             out += "\n"
         }

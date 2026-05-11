@@ -63,6 +63,10 @@ struct Diff: AsyncParsableCommand {
             help: "Number of context lines (default 3).")
     var unified: Int?
 
+    @Option(name: .customLong("color"),
+            help: "Colorize patch output: always, auto (default), or never.")
+    var color: ColorChoice = .auto
+
     @Argument(parsing: .captureForPassthrough,
               help: "Optional commit-ishes / range / `-- <paths>`.")
     var rest: [String] = []
@@ -132,8 +136,16 @@ struct Diff: AsyncParsableCommand {
 
         // Step 5 — run the diff.
         let context = unified.map { UInt32(max(0, $0)) }
-        let output = try await client.diff(
+        var output = try await client.diff(
             target, format: format, paths: paths, contextLines: context)
+        // Colorize the unified-patch form only. The machine-readable
+        // formats (`--raw`, `--name-only`, `--name-status`, `--stat`,
+        // `--shortstat`, `--numstat`) stay uncolored so downstream
+        // pipes don't have to strip escapes.
+        if format == .patch, !output.isEmpty {
+            let palette = ColorPalette(enabled: color.resolved())
+            output = palette.colorizePatch(output)
+        }
         if !output.isEmpty {
             Shell.current.stdout.write(Data(output.utf8))
         }
