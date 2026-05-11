@@ -1,4 +1,5 @@
 import ArgumentParser
+import ForgeKit
 import ShellKit
 import Foundation
 import GitLab
@@ -20,9 +21,18 @@ struct TagList: AsyncParsableCommand {
             help: "Search filter (substring of tag name).")
     var search: String?
 
+    @Option(name: .customLong("color"),
+            help: "Colorize output: always, auto (default), or never.")
+    var color: ColorChoice = .auto
+
     func run() async throws {
         let target = try await CommandContext.resolveRepo(flag: repo)
         let client = try await CommandContext.apiClient(host: target.host)
+        // Fetch the project to derive the web URL for OSC 8 links —
+        // tags don't carry one of their own. Best-effort: if this
+        // call fails we just emit unlinked tag names.
+        let project: Project? = try? await client.get("projects/\(target.encodedPath)")
+
         var query: [URLQueryItem] = [
             URLQueryItem(name: "per_page", value: String(min(limit, 100))),
         ]
@@ -31,10 +41,22 @@ struct TagList: AsyncParsableCommand {
             "projects/\(target.encodedPath)/repository/tags",
             query: query)
         if tags.isEmpty { Shell.print("No tags."); return }
+        let on = color.resolved()
+        let projectWebBase = project?.webUrl.absoluteString
         for tag in tags.prefix(limit) {
             let commit = tag.commit?.shortId ?? tag.commit?.id.prefix(7).description ?? ""
             let title = tag.message?.split(separator: "\n").first.map(String.init) ?? ""
-            Shell.print("\(tag.name)\t\(commit)\t\(title)")
+            // GitLab's tag view lives at `<project>/-/tags/<name>`.
+            // URL-encode the name so refs with slashes (`v/1.0`) and
+            // similar still produce a valid hyperlink.
+            let nameToken: String
+            if let base = projectWebBase,
+               let encoded = tag.name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) {
+                nameToken = OSC8.wrap(tag.name, url: "\(base)/-/tags/\(encoded)", enabled: on)
+            } else {
+                nameToken = tag.name
+            }
+            Shell.print("\(nameToken)\t\(StatusBadge.muted(commit, enabled: on))\t\(title)")
         }
     }
 }

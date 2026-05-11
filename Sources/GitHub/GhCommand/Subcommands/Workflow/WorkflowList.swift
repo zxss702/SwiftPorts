@@ -1,4 +1,5 @@
 import ArgumentParser
+import ForgeKit
 import ShellKit
 import Foundation
 import GitHub
@@ -20,6 +21,10 @@ struct WorkflowList: AsyncParsableCommand {
             help: "Output JSON with the specified fields (comma-separated).")
     var json: String?
 
+    @Option(name: .customLong("color"),
+            help: "Colorize output: always, auto (default), or never.")
+    var color: ColorChoice = .auto
+
     func run() async throws {
         let target = try await RepositoryResolver.resolve(flag: repo)
         let client = try await CommandContext.apiClient()
@@ -37,8 +42,18 @@ struct WorkflowList: AsyncParsableCommand {
             Shell.print("No workflows in \(target.slug).")
             return
         }
+        let on = color.resolved()
         for w in trimmed {
-            Shell.print("\(w.id)\t\(w.state.rawValue)\t\(w.name)\t\(w.path)")
+            let stateText = w.state.rawValue
+            let state: String
+            switch stateText {
+            case "active":             state = StatusBadge.success(stateText, enabled: on)
+            case "disabled_manually",
+                 "disabled_inactivity": state = StatusBadge.failure(stateText, enabled: on)
+            default:                   state = stateText
+            }
+            let idToken = OSC8.wrap("\(w.id)", url: w.htmlUrl.absoluteString, enabled: on)
+            Shell.print("\(idToken)\t\(state)\t\(w.name)\t\(w.path)")
         }
     }
 }

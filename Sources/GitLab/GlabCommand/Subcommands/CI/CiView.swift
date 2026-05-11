@@ -29,6 +29,10 @@ struct CiView: AsyncParsableCommand {
     @Flag(name: .long, help: "Print as JSON.")
     var json: Bool = false
 
+    @Option(name: .customLong("color"),
+            help: "Colorize output: always, auto (default), or never.")
+    var color: ColorChoice = .auto
+
     func run() async throws {
         let target = try await CommandContext.resolveRepo(flag: repo)
         let client = try await CommandContext.apiClient(host: target.host)
@@ -64,18 +68,20 @@ struct CiView: AsyncParsableCommand {
             return
         }
 
-        Self.printPipelineHeader(pipeline)
-        Self.printJobsByStage(jobs)
+        let on = color.resolved()
+        Self.printPipelineHeader(pipeline, enabled: on)
+        Self.printJobsByStage(jobs, enabled: on)
     }
 
-    static func printPipelineHeader(_ p: Pipeline) {
-        Shell.print("\(ANSI.bold("#\(p.id)"))  \(CiSupport.renderStatus(p.status))")
+    static func printPipelineHeader(_ p: Pipeline, enabled on: Bool) {
+        let idToken = OSC8.wrap("#\(p.id)", url: p.webUrl.absoluteString, enabled: on)
+        Shell.print("\(ANSI.bold(idToken))  \(CiSupport.renderStatus(p.status, enabled: on))")
         Shell.print("ref: \(p.ref ?? "—")  sha: \(String(p.sha.prefix(8)))")
-        Shell.print("started: \(CiSupport.ageInWords(from: p.startedAt ?? p.createdAt))  duration: \(CiSupport.formatDuration(p.duration))")
+        Shell.print("started: \(StatusBadge.muted(CiSupport.ageInWords(from: p.startedAt ?? p.createdAt), enabled: on))  duration: \(CiSupport.formatDuration(p.duration))")
         Shell.print("url: \(p.webUrl.absoluteString)")
     }
 
-    static func printJobsByStage(_ jobs: [Job]) {
+    static func printJobsByStage(_ jobs: [Job], enabled on: Bool) {
         // Preserve first-seen stage order (the API returns jobs roughly
         // in stage order, sometimes interleaved by retry).
         var stageOrder: [String] = []
@@ -88,7 +94,8 @@ struct CiView: AsyncParsableCommand {
             Shell.print("\n\(ANSI.bold("[\(stage)]"))")
             for j in byStage[stage] ?? [] {
                 let dur = CiSupport.formatDuration(j.duration)
-                Shell.print("  \(CiSupport.renderStatus(j.status))  \(j.name) \(ANSI.dim("(#\(j.id), \(dur))"))")
+                let tail = "(#\(j.id), \(dur))"
+                Shell.print("  \(CiSupport.renderStatus(j.status, enabled: on))  \(j.name) \(StatusBadge.muted(tail, enabled: on))")
             }
         }
     }

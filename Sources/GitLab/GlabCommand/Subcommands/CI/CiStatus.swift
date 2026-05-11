@@ -89,6 +89,9 @@ struct CiStatus: AsyncParsableCommand {
 
     private func printJobBreakdown(_ jobs: [Job]) {
         Shell.print()
-        CiView.printJobsByStage(jobs)
+        // CiStatus has no `--color` flag of its own; honor the same
+        // env contract via ColorChoice.auto so output matches what
+        // the other ci subcommands emit by default.
+        CiView.printJobsByStage(jobs, enabled: ColorChoice.auto.resolved())
     }
 }

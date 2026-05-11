@@ -1,4 +1,5 @@
 import ArgumentParser
+import ForgeKit
 import ShellKit
 import Foundation
 import GitHub
@@ -24,6 +25,10 @@ struct ProjectList: AsyncParsableCommand {
     @Option(name: .customLong("format"),
             help: "Output format: {json}.")
     var format: ProjectFormat?
+
+    @Option(name: .customLong("color"),
+            help: "Colorize output: always, auto (default), or never.")
+    var color: ColorChoice = .auto
 
     func run() async throws {
         let client = try await CommandContext.graphQLClient()
@@ -69,11 +74,17 @@ struct ProjectList: AsyncParsableCommand {
             return
         }
         Shell.print("Showing \(trimmed.count) of \(connection.totalCount ?? trimmed.count) projects.")
+        let on = color.resolved()
         for p in trimmed {
-            let visibility = p.public ? "public" : "private"
-            let state = p.closed ? "closed" : "open"
+            let visibility = p.public
+                ? StatusBadge.open("public",  enabled: on)
+                : StatusBadge.draft("private", enabled: on)
+            let state = p.closed
+                ? StatusBadge.closed(enabled: on)
+                : StatusBadge.open(enabled: on)
             let title = p.title.isEmpty ? "(no title)" : p.title
-            Shell.print("#\(p.number)\t\(state)\t\(visibility)\t\(title)\t\(p.url.absoluteString)")
+            let numberToken = OSC8.wrap("#\(p.number)", url: p.url.absoluteString, enabled: on)
+            Shell.print("\(numberToken)\t\(state)\t\(visibility)\t\(title)\t\(p.url.absoluteString)")
         }
     }
 }

@@ -62,16 +62,28 @@ enum CiSupport {
     }
 
     /// Render an ANSI-coloured 1-letter glyph + text for a status.
-    static func renderStatus(_ status: PipelineStatus) -> String {
+    /// Pass `enabled: false` (e.g. from `--color=never`) for plain
+    /// text; otherwise mostly routes through `StatusBadge` so the
+    /// `success` / `failure` / `in-progress` semantics line up with
+    /// the rest of SwiftPorts' tools.
+    static func renderStatus(_ status: PipelineStatus, enabled: Bool = true) -> String {
+        let label = status.rawValue
         switch status {
-        case .success:                                 return ANSI.green("✓ \(status.rawValue)")
-        case .failed:                                  return ANSI.red("✗ \(status.rawValue)")
-        case .canceled, .canceling, .skipped:          return ANSI.yellow("✗ \(status.rawValue)")
+        case .success:
+            return StatusBadge.success("✓ \(label)", enabled: enabled)
+        case .failed:
+            return StatusBadge.failure("✗ \(label)", enabled: enabled)
+        case .canceled, .canceling, .skipped:
+            return StatusBadge.draft("✗ \(label)", enabled: enabled)
         case .running, .pending, .preparing,
-             .waitingForResource, .created:            return ANSI.cyan("● \(status.rawValue)")
-        case .manual:                                  return ANSI.magenta("⏸ \(status.rawValue)")
-        case .scheduled:                               return ANSI.blue("⏰ \(status.rawValue)")
-        case .unknown:                                 return ANSI.dim(status.rawValue)
+             .waitingForResource, .created:
+            return enabled ? ANSI.cyan("● \(label)") : "● \(label)"
+        case .manual:
+            return enabled ? ANSI.magenta("⏸ \(label)") : "⏸ \(label)"
+        case .scheduled:
+            return enabled ? ANSI.blue("⏰ \(label)") : "⏰ \(label)"
+        case .unknown:
+            return StatusBadge.muted(label, enabled: enabled)
         }
     }
 

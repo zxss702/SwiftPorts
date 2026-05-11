@@ -1,4 +1,5 @@
 import ArgumentParser
+import ForgeKit
 import ShellKit
 import Foundation
 import GitHub
@@ -19,6 +20,10 @@ struct GistList: AsyncParsableCommand {
     @Flag(name: .long, help: "Only show secret gists.")
     var secretOnly: Bool = false
 
+    @Option(name: .customLong("color"),
+            help: "Colorize output: always, auto (default), or never.")
+    var color: ColorChoice = .auto
+
     func run() async throws {
         let client = try await CommandContext.apiClient()
         let perPage = min(limit, 100)
@@ -36,11 +41,15 @@ struct GistList: AsyncParsableCommand {
             Shell.print("No gists found.")
             return
         }
+        let on = color.resolved()
         for g in trimmed {
-            let visibility = g.public ? "public" : "secret"
+            let visibility = g.public
+                ? StatusBadge.open("public", enabled: on)
+                : StatusBadge.draft("secret", enabled: on)
             let files = g.files.keys.sorted().joined(separator: ", ")
             let desc = g.description ?? ""
-            Shell.print("\(g.id)\t\(visibility)\t\(files)\t\(desc)")
+            let idToken = OSC8.wrap(g.id, url: g.htmlUrl.absoluteString, enabled: on)
+            Shell.print("\(idToken)\t\(visibility)\t\(files)\t\(desc)")
         }
     }
 }

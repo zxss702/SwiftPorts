@@ -1,4 +1,5 @@
 import ArgumentParser
+import GlamKit
 import ShellKit
 import Foundation
 import GitHub
@@ -55,6 +56,6 @@ struct GistView: AsyncParsableCommand {
     /// this; the `--filename` path stays raw (see `run`).
     private static func renderFileContent(_ content: String, language: String?) -> String {
         guard language == "Markdown" else { return content }
-        return MarkdownBody.render(content)
+        return Glam.renderBody(content)
     }
 }

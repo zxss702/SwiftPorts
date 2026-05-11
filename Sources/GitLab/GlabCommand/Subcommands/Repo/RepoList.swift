@@ -54,6 +54,10 @@ struct RepoList: AsyncParsableCommand {
     @Flag(name: .long, help: "Print as JSON array.")
     var json: Bool = false
 
+    @Option(name: .customLong("color"),
+            help: "Colorize output: always, auto (default), or never.")
+    var color: ColorChoice = .auto
+
     func run() async throws {
         let client = try await CommandContext.apiClient(host: hostname)
 
@@ -94,12 +98,26 @@ struct RepoList: AsyncParsableCommand {
             Shell.print("No projects match.")
             return
         }
+        let on = color.resolved()
         for p in projects {
-            let archivedTag = (p.archived == true) ? "  " + ANSI.yellow("(archived)") : ""
-            let branchTag = p.defaultBranch.map { "  " + ANSI.dim("[\($0)]") } ?? ""
-            Shell.print("#\(p.id)\t\(p.pathWithNamespace)\(branchTag)\(archivedTag)")
+            let archivedTag = (p.archived == true)
+                ? "  " + StatusBadge.failure("(archived)", enabled: on)
+                : ""
+            let branchTag = p.defaultBranch.map {
+                "  " + (on ? ANSI.dim("[\($0)]") : "[\($0)]")
+            } ?? ""
+            let visText = p.visibility
+            let visibility: String
+            switch visText {
+            case "public":   visibility = "  " + StatusBadge.open(visText,    enabled: on)
+            case "private":  visibility = "  " + StatusBadge.draft(visText,   enabled: on)
+            case "internal": visibility = "  " + (on ? ANSI.cyan(visText)     : visText)
+            default:         visibility = ""
+            }
+            let pathToken = OSC8.wrap(p.pathWithNamespace, url: p.webUrl.absoluteString, enabled: on)
+            Shell.print("#\(p.id)\t\(pathToken)\(visibility)\(branchTag)\(archivedTag)")
             if let d = p.description, !d.isEmpty {
-                Shell.print("\t\(ANSI.dim(d))")
+                Shell.print("\t" + (on ? ANSI.dim(d) : d))
             }
         }
     }

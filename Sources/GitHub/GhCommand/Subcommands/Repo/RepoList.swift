@@ -1,4 +1,5 @@
 import ArgumentParser
+import ForgeKit
 import ShellKit
 import Foundation
 import GitHub
@@ -35,6 +36,10 @@ struct RepoList: AsyncParsableCommand {
     @Option(name: .long,
             help: "Output JSON with the specified fields (comma-separated).")
     var json: String?
+
+    @Option(name: .customLong("color"),
+            help: "Colorize output: always, auto (default), or never.")
+    var color: ColorChoice = .auto
 
     func run() async throws {
         if let json {
@@ -87,11 +92,23 @@ struct RepoList: AsyncParsableCommand {
             Shell.print("No repositories.")
             return
         }
+        let on = color.resolved()
         for r in trimmed {
-            let visibility = r.visibility?.rawValue ?? (r.private ? "private" : "public")
+            let visText = r.visibility?.rawValue ?? (r.private ? "private" : "public")
+            // Color the visibility column the same way real `gh` does:
+            // public → green, private → yellow, internal → cyan. Pass
+            // through StatusBadge so `--color=never` honors it.
+            let visibility: String
+            switch visText {
+            case "public":   visibility = StatusBadge.open(visText,        enabled: on)
+            case "private":  visibility = StatusBadge.draft(visText,       enabled: on)
+            case "internal": visibility = on ? ANSI.cyan(visText)          : visText
+            default:         visibility = visText
+            }
+            let nameToken = OSC8.wrap(r.fullName, url: r.htmlUrl.absoluteString, enabled: on)
             let lang = r.language ?? "—"
             let desc = r.description ?? ""
-            Shell.print("\(r.fullName)\t\(visibility)\t\(lang)\t\(desc)")
+            Shell.print("\(nameToken)\t\(visibility)\t\(lang)\t\(desc)")
         }
     }
 }
