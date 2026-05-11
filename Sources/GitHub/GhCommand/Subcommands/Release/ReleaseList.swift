@@ -1,4 +1,5 @@
 import ArgumentParser
+import ForgeKit
 import ShellKit
 import Foundation
 import GitHub
@@ -20,6 +21,10 @@ struct ReleaseList: AsyncParsableCommand {
     @Option(name: .long,
             help: "Output JSON with the specified fields (comma-separated).")
     var json: String?
+
+    @Option(name: .customLong("color"),
+            help: "Colorize output: always, auto (default), or never.")
+    var color: ColorChoice = .auto
 
     func run() async throws {
         let target = try await RepositoryResolver.resolve(flag: repo)
@@ -52,10 +57,15 @@ struct ReleaseList: AsyncParsableCommand {
             Shell.print("No releases found in \(target.slug).")
             return
         }
+        let on = color.resolved()
         for r in trimmed {
-            let label = r.draft ? "[draft]" : (r.prerelease ? "[pre]" : "       ")
+            let label: String
+            if r.draft           { label = StatusBadge.draft("[draft]",   enabled: on) }
+            else if r.prerelease { label = StatusBadge.inProgress("[pre]", enabled: on) }
+            else                 { label = "       " }
+            let tag = OSC8.wrap(r.tagName, url: r.htmlUrl.absoluteString, enabled: on)
             let when = r.publishedAt.map(ISO8601DateFormatter().string(from:)) ?? "-"
-            Shell.print("\(label)  \(r.tagName)\t\(r.name ?? "")\t\(when)")
+            Shell.print("\(label)  \(tag)\t\(r.name ?? "")\t\(StatusBadge.muted(when, enabled: on))")
         }
     }
 

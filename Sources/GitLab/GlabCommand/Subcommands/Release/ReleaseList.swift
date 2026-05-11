@@ -1,4 +1,5 @@
 import ArgumentParser
+import ForgeKit
 import ShellKit
 import Foundation
 import GitLab
@@ -16,6 +17,10 @@ struct ReleaseList: AsyncParsableCommand {
     @Option(name: [.short, .customLong("limit")])
     var limit: Int = 30
 
+    @Option(name: .customLong("color"),
+            help: "Colorize output: always, auto (default), or never.")
+    var color: ColorChoice = .auto
+
     func run() async throws {
         let target = try await CommandContext.resolveRepo(flag: repo)
         let client = try await CommandContext.apiClient(host: target.host)
@@ -24,10 +29,13 @@ struct ReleaseList: AsyncParsableCommand {
             query: [URLQueryItem(name: "per_page", value: String(min(limit, 100)))])
         if releases.isEmpty { Shell.print("No releases in \(target.fullPath)."); return }
         let formatter = ISO8601DateFormatter()
+        let on = color.resolved()
         for r in releases.prefix(limit) {
             let when = r.releasedAt.map { formatter.string(from: $0) } ?? ""
             let title = r.name ?? r.tagName
-            Shell.print("\(r.tagName)\t\(title)\t\(when)")
+            let tagText = r.tagName
+            let tagToken = r._links?.selfLink.map { OSC8.wrap(tagText, url: $0.absoluteString, enabled: on) } ?? tagText
+            Shell.print("\(tagToken)\t\(title)\t\(StatusBadge.muted(when, enabled: on))")
         }
     }
 }

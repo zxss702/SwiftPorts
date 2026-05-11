@@ -30,13 +30,15 @@ enum MrSupport {
         return id
     }
 
-    static func renderState(_ state: MergeRequestState) -> String {
+    /// Render an MR state as a colored badge. Pass `enabled: false`
+    /// (typically from `--color=never` / `NO_COLOR`) for plain text.
+    static func renderState(_ state: MergeRequestState, enabled: Bool = true) -> String {
         switch state {
-        case .opened: return ANSI.green("opened")
-        case .merged: return ANSI.magenta("merged")
-        case .closed: return ANSI.red("closed")
-        case .locked: return ANSI.yellow("locked")
-        case .unknown(let s): return ANSI.dim(s)
+        case .opened:        return StatusBadge.open("opened",   enabled: enabled)
+        case .merged:        return StatusBadge.merged(enabled: enabled)
+        case .closed:        return StatusBadge.closed(enabled: enabled)
+        case .locked:        return StatusBadge.draft("locked",  enabled: enabled)
+        case .unknown(let s): return StatusBadge.muted(s, enabled: enabled)
         }
     }
 

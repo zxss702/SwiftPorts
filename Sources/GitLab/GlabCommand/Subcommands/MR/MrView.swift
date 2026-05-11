@@ -1,4 +1,5 @@
 import ArgumentParser
+import GlamKit
 import ShellKit
 import Foundation
 import ForgeKit
@@ -28,6 +29,10 @@ struct MrView: AsyncParsableCommand {
 
     @Flag(name: .long, help: "Print as JSON.")
     var json: Bool = false
+
+    @Option(name: .customLong("color"),
+            help: "Colorize output: always, auto (default), or never.")
+    var color: ColorChoice = .auto
 
     func run() async throws {
         let (target, iid) = try await MrSupport.resolveTarget(
@@ -59,10 +64,12 @@ struct MrView: AsyncParsableCommand {
             return
         }
 
+        let on = color.resolved()
         let titleSuffix = (merge.draft == true || merge.workInProgress == true)
-            ? "  " + ANSI.yellow("(draft)") : ""
-        Shell.print("\(ANSI.bold("!\(merge.iid)"))  \(ANSI.bold(merge.title))\(titleSuffix)")
-        let stateLabel = MrSupport.renderState(merge.state)
+            ? "  " + StatusBadge.draft("(draft)", enabled: on) : ""
+        let iidToken = OSC8.wrap("!\(merge.iid)", url: merge.webUrl.absoluteString, enabled: on)
+        Shell.print("\(ANSI.bold(iidToken))  \(ANSI.bold(merge.title))\(titleSuffix)")
+        let stateLabel = MrSupport.renderState(merge.state, enabled: on)
         let authorBit = merge.author.map { "@\($0.username)" } ?? "—"
         Shell.print("state: \(stateLabel)  author: \(authorBit)")
         Shell.print("branches: \(merge.sourceBranch) → \(merge.targetBranch)")
@@ -86,7 +93,7 @@ struct MrView: AsyncParsableCommand {
         }
         Shell.print("url: \(merge.webUrl.absoluteString)")
         if let body = merge.description, !body.isEmpty {
-            Shell.print("\n--\n\(MarkdownBody.render(body))")
+            Shell.print("\n--\n\(Glam.renderBody(body))")
         }
 
         if let userNotes {
@@ -98,7 +105,7 @@ struct MrView: AsyncParsableCommand {
             for note in userNotes {
                 let when = note.createdAt.map(ISO8601DateFormatter().string(from:)) ?? "?"
                 Shell.print("\n@\(note.author.username)  \(ANSI.dim(when))")
-                Shell.print(MarkdownBody.render(note.body))
+                Shell.print(Glam.renderBody(note.body))
             }
         }
     }

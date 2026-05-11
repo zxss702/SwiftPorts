@@ -119,7 +119,8 @@ struct RunView: AsyncParsableCommand {
     // MARK: Rendering
 
     private func renderRunSummary(_ run: WorkflowRun) {
-        Shell.print("\(ANSI.bold("Run #\(run.runNumber)")): \(run.displayTitle ?? run.name ?? "?")")
+        let numberToken = OSC8.wrap("Run #\(run.runNumber)", url: run.htmlUrl.absoluteString)
+        Shell.print("\(ANSI.bold(numberToken)): \(run.displayTitle ?? run.name ?? "?")")
         let status = run.conclusion ?? run.status ?? "-"
         Shell.print("status: \(conclusionGlyph(status)) \(status)")
         Shell.print("event: \(run.event)  branch: \(run.headBranch ?? "-")  sha: \(String(run.headSha.prefix(7)))")

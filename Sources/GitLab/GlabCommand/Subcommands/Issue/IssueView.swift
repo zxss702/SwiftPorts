@@ -1,4 +1,5 @@
 import ArgumentParser
+import GlamKit
 import ShellKit
 import Foundation
 import ForgeKit
@@ -28,6 +29,10 @@ struct IssueView: AsyncParsableCommand {
 
     @Flag(name: .long, help: "Print as JSON.")
     var json: Bool = false
+
+    @Option(name: .customLong("color"),
+            help: "Colorize output: always, auto (default), or never.")
+    var color: ColorChoice = .auto
 
     func run() async throws {
         let parsed = try IssueArgument.parse(issue)
@@ -67,10 +72,12 @@ struct IssueView: AsyncParsableCommand {
             return
         }
 
+        let on = color.resolved()
         let stateLabel: String = issue.state == .opened
-            ? ANSI.green("opened")
-            : ANSI.red(issue.state.rawValue)
-        Shell.print("\(ANSI.bold("#\(issue.iid)"))  \(ANSI.bold(issue.title))")
+            ? StatusBadge.open("opened", enabled: on)
+            : StatusBadge.closed(issue.state.rawValue, enabled: on)
+        let iidToken = OSC8.wrap("#\(issue.iid)", url: issue.webUrl.absoluteString, enabled: on)
+        Shell.print("\(ANSI.bold(iidToken))  \(ANSI.bold(issue.title))")
         let authorBit = issue.author.map { "@\($0.username)" } ?? "—"
         Shell.print("state: \(stateLabel)  author: \(authorBit)")
         if let createdAt = issue.createdAt {
@@ -84,7 +91,7 @@ struct IssueView: AsyncParsableCommand {
         }
         Shell.print("url: \(issue.webUrl.absoluteString)")
         if let body = issue.description, !body.isEmpty {
-            Shell.print("\n--\n\(MarkdownBody.render(body))")
+            Shell.print("\n--\n\(Glam.renderBody(body))")
         }
 
         if let userNotes {
@@ -96,7 +103,7 @@ struct IssueView: AsyncParsableCommand {
             for note in userNotes {
                 let when = note.createdAt.map(ISO8601DateFormatter().string(from:)) ?? "?"
                 Shell.print("\n@\(note.author.username)  \(ANSI.dim(when))")
-                Shell.print(MarkdownBody.render(note.body))
+                Shell.print(Glam.renderBody(note.body))
             }
         }
     }

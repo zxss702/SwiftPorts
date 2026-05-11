@@ -1,4 +1,6 @@
 import ArgumentParser
+import ForgeKit
+import GlamKit
 import ShellKit
 import Foundation
 import GitHub
@@ -21,6 +23,10 @@ struct ReleaseView: AsyncParsableCommand {
             help: "Output JSON with the specified fields (comma-separated).")
     var json: String?
 
+    @Option(name: .customLong("color"),
+            help: "Colorize output: always, auto (default), or never.")
+    var color: ColorChoice = .auto
+
     func run() async throws {
         let target = try await RepositoryResolver.resolve(flag: repo)
         let client = try await CommandContext.apiClient()
@@ -41,9 +47,16 @@ struct ReleaseView: AsyncParsableCommand {
             return
         }
 
-        Shell.print("\(release.tagName)  \(release.name ?? "")")
+        let on = color.resolved()
+        let tagToken = OSC8.wrap(release.tagName, url: release.htmlUrl.absoluteString, enabled: on)
+        Shell.print("\(ANSI.bold(tagToken))  \(release.name ?? "")")
+        if release.draft {
+            Shell.print("state: \(StatusBadge.draft(enabled: on))")
+        } else if release.prerelease {
+            Shell.print("state: \(StatusBadge.inProgress("pre-release", enabled: on))")
+        }
         if let when = release.publishedAt {
-            Shell.print("published: \(ISO8601DateFormatter().string(from: when))")
+            Shell.print("published: \(StatusBadge.muted(ISO8601DateFormatter().string(from: when), enabled: on))")
         }
         Shell.print("author: @\(release.author.login)")
         Shell.print("url: \(release.htmlUrl.absoluteString)")
@@ -56,7 +69,7 @@ struct ReleaseView: AsyncParsableCommand {
             }
         }
         if let body = release.body, !body.isEmpty {
-            Shell.print("\n--\n\(MarkdownBody.render(body))")
+            Shell.print("\n--\n\(Glam.renderBody(body))")
         }
     }
 }

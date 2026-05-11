@@ -1,4 +1,5 @@
 import ArgumentParser
+import ForgeKit
 import ShellKit
 import Foundation
 import GitHub
@@ -36,6 +37,10 @@ struct RunList: AsyncParsableCommand {
             help: "Output JSON with the specified fields (comma-separated).")
     var json: String?
 
+    @Option(name: .customLong("color"),
+            help: "Colorize output: always, auto (default), or never.")
+    var color: ColorChoice = .auto
+
     func run() async throws {
         let target = try await RepositoryResolver.resolve(flag: repo)
         let client = try await CommandContext.apiClient()
@@ -66,11 +71,23 @@ struct RunList: AsyncParsableCommand {
             Shell.print("No runs match.")
             return
         }
+        let on = color.resolved()
         for run in trimmed {
-            let status = run.conclusion ?? run.status ?? "?"
+            let rawStatus = run.conclusion ?? run.status ?? "?"
+            let status: String
+            switch rawStatus {
+            case "success", "completed": status = StatusBadge.success(rawStatus, enabled: on)
+            case "failure", "cancelled", "timed_out", "action_required":
+                status = StatusBadge.failure(rawStatus, enabled: on)
+            case "in_progress", "queued", "pending", "waiting":
+                status = StatusBadge.inProgress(rawStatus, enabled: on)
+            default:
+                status = rawStatus
+            }
             let title = run.displayTitle ?? run.name ?? "?"
-            let when = ISO8601DateFormatter().string(from: run.createdAt)
-            Shell.print("\(run.id)\t\(status)\t\(run.event)\t\(title)\t\(run.headBranch ?? "-")\t\(when)")
+            let idToken = OSC8.wrap("\(run.id)", url: run.htmlUrl.absoluteString, enabled: on)
+            let when = StatusBadge.muted(ISO8601DateFormatter().string(from: run.createdAt), enabled: on)
+            Shell.print("\(idToken)\t\(status)\t\(run.event)\t\(title)\t\(run.headBranch ?? "-")\t\(when)")
         }
     }
 }

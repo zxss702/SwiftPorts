@@ -1,10 +1,15 @@
 import ArgumentParser
-import ForgeKit
 import ShellKit
 
-/// Tri-state `--color=<when>` argument shared by `status`, `diff`,
-/// and any other subcommand that wants to honor git's standard
-/// coloring contract.
+/// Tri-state `--color=<when>` argument shared by every CLI in
+/// SwiftPorts (gh, glab, git, …). Bind in any AsyncParsableCommand:
+///
+///     @Option(name: .customLong("color"),
+///             help: "Colorize output: always, auto (default), or never.")
+///     var color: ColorChoice = .auto
+///
+/// Then call `color.resolved()` once at run-time to get the on/off
+/// decision honoring `NO_COLOR` / `CLICOLOR_FORCE` / TTY state.
 ///
 /// The resolution order matches real git:
 ///   1. The flag's literal value, when not `auto`.

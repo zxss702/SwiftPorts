@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 import ShellKit
-@testable import GitCommand
+@testable import ForgeKit
 
 @Suite("ColorChoice")
 struct ColorChoiceTests {

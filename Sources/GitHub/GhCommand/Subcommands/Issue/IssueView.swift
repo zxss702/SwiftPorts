@@ -1,4 +1,5 @@
 import ArgumentParser
+import GlamKit
 import ShellKit
 import Foundation
 import GitHub
@@ -24,6 +25,10 @@ struct IssueView: AsyncParsableCommand {
     @Flag(name: .long, help: "Also fetch and print the issue's comments.")
     var comments: Bool = false
 
+    @Option(name: .customLong("color"),
+            help: "Colorize output: always, auto (default), or never.")
+    var color: ColorChoice = .auto
+
     func run() async throws {
         let target = try await RepositoryResolver.resolve(flag: repo)
 
@@ -48,16 +53,21 @@ struct IssueView: AsyncParsableCommand {
         let issue: Issue = try await client.get(
             "repos/\(target.slug)/issues/\(number)")
 
-        Shell.print("\(ANSI.bold("#\(issue.number)"))  \(ANSI.bold(issue.title))")
-        let stateColor: String = issue.state == .open ? ANSI.green("open") : ANSI.magenta("closed")
-        Shell.print("state: \(stateColor)  author: @\(issue.user.login)")
+        let on = color.resolved()
+        let numberToken = OSC8.wrap("#\(issue.number)", url: issue.htmlUrl.absoluteString, enabled: on)
+        Shell.print("\(ANSI.bold(numberToken))  \(ANSI.bold(issue.title))")
+        let stateLabel = issue.state == .open
+            ? StatusBadge.open(enabled: on)
+            : StatusBadge.closed(enabled: on)
+        Shell.print("state: \(stateLabel)  author: @\(issue.user.login)")
         Shell.print("created: \(ISO8601DateFormatter().string(from: issue.createdAt))")
         if !issue.labels.isEmpty {
-            Shell.print("labels: \(issue.labels.map(\.name).joined(separator: ", "))")
+            let chips = issue.labels.map { LabelChip.colored(name: $0.name, hex: $0.color, enabled: on) }
+            Shell.print("labels: \(chips.joined(separator: " "))")
         }
         Shell.print("url: \(issue.htmlUrl.absoluteString)")
         if let body = issue.body, !body.isEmpty {
-            Shell.print("\n--\n\(MarkdownBody.render(body))")
+            Shell.print("\n--\n\(Glam.renderBody(body))")
         }
         if comments {
             try await renderComments(target: target, client: client)
@@ -77,7 +87,7 @@ struct IssueView: AsyncParsableCommand {
         for comment in list {
             Shell.print("\n@\(comment.user.login)  \(f.string(from: comment.createdAt))")
             if let body = comment.body, !body.isEmpty {
-                Shell.print(MarkdownBody.render(body))
+                Shell.print(Glam.renderBody(body))
             }
         }
     }

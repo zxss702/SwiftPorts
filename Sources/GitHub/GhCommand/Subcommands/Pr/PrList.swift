@@ -1,4 +1,5 @@
 import ArgumentParser
+import ForgeKit
 import ShellKit
 import Foundation
 import GitHub
@@ -28,6 +29,10 @@ struct PrList: AsyncParsableCommand {
     @Option(name: .long,
             help: "Output JSON with the specified fields (comma-separated).")
     var json: String?
+
+    @Option(name: .customLong("color"),
+            help: "Colorize output: always, auto (default), or never.")
+    var color: ColorChoice = .auto
 
     func run() async throws {
         let target = try await RepositoryResolver.resolve(flag: repo)
@@ -65,8 +70,15 @@ struct PrList: AsyncParsableCommand {
             Shell.print("No pull requests match.")
             return
         }
+        let on = color.resolved()
         for p in trimmed {
-            Shell.print("#\(p.number)\t\(p.state.rawValue)\t\(p.title)\t@\(p.user.login)\t\(p.head.ref)→\(p.base.ref)")
+            let number = OSC8.wrap("#\(p.number)", url: p.htmlUrl.absoluteString, enabled: on)
+            let state: String
+            if p.merged == true { state = StatusBadge.merged(enabled: on) }
+            else if p.draft == true { state = StatusBadge.draft(enabled: on) }
+            else if p.state == .open { state = StatusBadge.open(enabled: on) }
+            else { state = StatusBadge.closed(enabled: on) }
+            Shell.print("\(number)\t\(state)\t\(p.title)\t@\(p.user.login)\t\(p.head.ref)→\(p.base.ref)")
         }
     }
 

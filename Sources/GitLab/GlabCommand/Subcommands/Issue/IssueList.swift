@@ -59,6 +59,10 @@ struct IssueList: AsyncParsableCommand {
     @Flag(name: .long, help: "Print as JSON array.")
     var json: Bool = false
 
+    @Option(name: .customLong("color"),
+            help: "Colorize output: always, auto (default), or never.")
+    var color: ColorChoice = .auto
+
     func run() async throws {
         let target = try await CommandContext.resolveRepo(flag: repo)
         let client = try await CommandContext.apiClient(host: target.host)
@@ -98,14 +102,17 @@ struct IssueList: AsyncParsableCommand {
             Shell.print("No issues match.")
             return
         }
+        let on = color.resolved()
         for issue in issues {
-            let stateColor = issue.state == .opened
-                ? ANSI.green("#\(issue.iid)")
-                : ANSI.red("#\(issue.iid)")
+            let iidText = "#\(issue.iid)"
+            let iidColored = issue.state == .opened
+                ? StatusBadge.open(iidText, enabled: on)
+                : StatusBadge.closed(iidText, enabled: on)
+            let iidToken = OSC8.wrap(iidColored, url: issue.webUrl.absoluteString, enabled: on)
             let labelChunk = issue.labels.isEmpty
                 ? ""
                 : "  " + ANSI.cyan("(\(issue.labels.joined(separator: ", ")))")
-            Shell.print("\(stateColor)\t\(issue.title)\(labelChunk)")
+            Shell.print("\(iidToken)\t\(issue.title)\(labelChunk)")
         }
     }
 }

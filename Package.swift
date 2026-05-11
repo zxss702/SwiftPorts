@@ -187,10 +187,21 @@ let package = Package(
     ],
     targets: [
         // MARK: ForgeKit (host-agnostic plumbing)
+        // ArgumentParser is wired in so ForgeKit can ship reusable
+        // command primitives (`ColorChoice`, etc.) that bind directly
+        // into AsyncParsableCommand declarations in gh / glab / git
+        // without each umbrella redefining them.
         .target(
             name: "ForgeKit",
-            dependencies: [.product(name: "ShellKit", package: "ShellKit")],
+            dependencies: [
+                .product(name: "ShellKit", package: "ShellKit"),
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
             path: "Sources/ForgeKit"
+        ),
+        .testTarget(
+            name: "ForgeKitTests",
+            dependencies: ["ForgeKit"]
         ),
 
         // MARK: ZipKit umbrella

@@ -42,6 +42,29 @@ public enum Glam {
         )
         return try renderer.render(markdown)
     }
+
+    /// Forgiving variant of ``render(_:style:wordWrap:baseURL:terminal:)``
+    /// for displaying remote-supplied bodies (PR / issue / MR
+    /// descriptions, gist files, release notes, project READMEs). On
+    /// success returns the rendered ANSI; on any rendering error
+    /// returns the original `body` verbatim so the user always sees
+    /// _something_ readable.
+    ///
+    /// Adopted by gh / glab everywhere a user-authored markdown
+    /// string is printed. Replaces the per-umbrella `MarkdownBody`
+    /// shims that used to live inside GhCommand / GlabCommand.
+    public static func renderBody(
+        _ body: String,
+        style: Style = .auto,
+        wordWrap: Int? = nil,
+        baseURL: String? = nil
+    ) -> String {
+        do {
+            return try render(body, style: style, wordWrap: wordWrap, baseURL: baseURL)
+        } catch {
+            return body
+        }
+    }
 }
 
 /// Reusable renderer. Configure once, render many.

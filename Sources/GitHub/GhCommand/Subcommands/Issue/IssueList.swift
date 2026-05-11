@@ -1,4 +1,5 @@
 import ArgumentParser
+import ForgeKit
 import ShellKit
 import Foundation
 import GitHub
@@ -33,6 +34,10 @@ struct IssueList: AsyncParsableCommand {
     @Option(name: .long,
             help: "Output JSON with the specified fields (comma-separated).")
     var json: String?
+
+    @Option(name: .customLong("color"),
+            help: "Colorize output: always, auto (default), or never.")
+    var color: ColorChoice = .auto
 
     func run() async throws {
         let target = try await RepositoryResolver.resolve(flag: repo)
@@ -77,8 +82,13 @@ struct IssueList: AsyncParsableCommand {
             Shell.print("No issues match.")
             return
         }
+        let on = color.resolved()
         for i in trimmed {
-            Shell.print("#\(i.number)\t\(i.state.rawValue)\t\(i.title)\t@\(i.user.login)")
+            let number = OSC8.wrap("#\(i.number)", url: i.htmlUrl.absoluteString, enabled: on)
+            let state = i.state == .open
+                ? StatusBadge.open(enabled: on)
+                : StatusBadge.closed(enabled: on)
+            Shell.print("\(number)\t\(state)\t\(i.title)\t@\(i.user.login)")
         }
     }
 

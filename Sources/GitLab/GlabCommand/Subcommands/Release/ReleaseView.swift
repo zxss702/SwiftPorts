@@ -1,4 +1,6 @@
 import ArgumentParser
+import ForgeKit
+import GlamKit
 import ShellKit
 import Foundation
 import GitLab
@@ -19,6 +21,10 @@ struct ReleaseView: AsyncParsableCommand {
     @Flag(name: .long, help: "Print the JSON response body.")
     var json: Bool = false
 
+    @Option(name: .customLong("color"),
+            help: "Colorize output: always, auto (default), or never.")
+    var color: ColorChoice = .auto
+
     func run() async throws {
         let target = try await CommandContext.resolveRepo(flag: repo)
         let client = try await CommandContext.apiClient(host: target.host)
@@ -31,16 +37,22 @@ struct ReleaseView: AsyncParsableCommand {
             return
         }
 
-        Shell.print(release.name ?? release.tagName)
+        let on = color.resolved()
+        let title = release.name ?? release.tagName
+        if let url = release._links?.selfLink {
+            Shell.print(OSC8.wrap(title, url: url.absoluteString, enabled: on))
+        } else {
+            Shell.print(title)
+        }
         Shell.print("tag: \(release.tagName)")
         if let when = release.releasedAt {
-            Shell.print("released: \(ISO8601DateFormatter().string(from: when))")
+            Shell.print("released: \(StatusBadge.muted(ISO8601DateFormatter().string(from: when), enabled: on))")
         }
         if let author = release.author {
             Shell.print("author: @\(author.username)")
         }
         if let body = release.description, !body.isEmpty {
-            Shell.print("\n\(MarkdownBody.render(body))")
+            Shell.print("\n\(Glam.renderBody(body))")
         }
         if let links = release.assets?.links, !links.isEmpty {
             Shell.print("\nassets:")

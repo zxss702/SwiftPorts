@@ -1,4 +1,5 @@
 import ArgumentParser
+import GlamKit
 import ShellKit
 import Foundation
 import GitHub
@@ -24,6 +25,10 @@ struct PrView: AsyncParsableCommand {
     @Flag(name: .long, help: "Also fetch and print the PR's comments.")
     var comments: Bool = false
 
+    @Option(name: .customLong("color"),
+            help: "Colorize output: always, auto (default), or never.")
+    var color: ColorChoice = .auto
+
     func run() async throws {
         let target = try await RepositoryResolver.resolve(flag: repo)
 
@@ -48,24 +53,27 @@ struct PrView: AsyncParsableCommand {
         let pr: PullRequest = try await client.get(
             "repos/\(target.slug)/pulls/\(number)")
 
-        Shell.print("\(ANSI.bold("#\(pr.number)"))  \(ANSI.bold(pr.title))")
-        let stateColor: String
-        if pr.merged == true { stateColor = ANSI.magenta("merged") }
-        else if pr.state == .open { stateColor = ANSI.green("open") }
-        else { stateColor = ANSI.red("closed") }
-        let draftSuffix = pr.draft == true ? ANSI.dim(" (draft)") : ""
-        Shell.print("state: \(stateColor)\(draftSuffix)  author: @\(pr.user.login)")
+        let on = color.resolved()
+        let numberToken = OSC8.wrap("#\(pr.number)", url: pr.htmlUrl.absoluteString, enabled: on)
+        Shell.print("\(ANSI.bold(numberToken))  \(ANSI.bold(pr.title))")
+        let stateLabel: String
+        if pr.merged == true { stateLabel = StatusBadge.merged(enabled: on) }
+        else if pr.state == .open { stateLabel = StatusBadge.open(enabled: on) }
+        else { stateLabel = StatusBadge.closed(enabled: on) }
+        let draftSuffix = pr.draft == true ? " \(StatusBadge.draft("(draft)", enabled: on))" : ""
+        Shell.print("state: \(stateLabel)\(draftSuffix)  author: @\(pr.user.login)")
         Shell.print("\(pr.head.ref) → \(pr.base.ref)")
         Shell.print("created: \(ISO8601DateFormatter().string(from: pr.createdAt))")
         if let merged = pr.merged, merged, let when = pr.mergedAt {
             Shell.print("merged: \(ISO8601DateFormatter().string(from: when))")
         }
         if !pr.labels.isEmpty {
-            Shell.print("labels: \(pr.labels.map(\.name).joined(separator: ", "))")
+            let chips = pr.labels.map { LabelChip.colored(name: $0.name, hex: $0.color, enabled: on) }
+            Shell.print("labels: \(chips.joined(separator: " "))")
         }
         Shell.print("url: \(pr.htmlUrl.absoluteString)")
         if let body = pr.body, !body.isEmpty {
-            Shell.print("\n--\n\(MarkdownBody.render(body))")
+            Shell.print("\n--\n\(Glam.renderBody(body))")
         }
         if comments {
             try await renderComments(target: target, client: client)
@@ -87,7 +95,7 @@ struct PrView: AsyncParsableCommand {
         for comment in list {
             Shell.print("\n@\(comment.user.login)  \(f.string(from: comment.createdAt))")
             if let body = comment.body, !body.isEmpty {
-                Shell.print(MarkdownBody.render(body))
+                Shell.print(Glam.renderBody(body))
             }
         }
     }

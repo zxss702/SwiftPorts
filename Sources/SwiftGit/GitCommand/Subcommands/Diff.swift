@@ -1,4 +1,5 @@
 import ArgumentParser
+import ForgeKit
 import Foundation
 import ShellKit
 import SwiftGit
