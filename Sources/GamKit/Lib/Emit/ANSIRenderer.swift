@@ -380,12 +380,15 @@ final class ANSIRenderer {
     private func resolveURL(_ raw: String) -> String {
         guard let baseURL, !baseURL.isEmpty, !raw.isEmpty else { return raw }
         if raw.contains("://") || raw.hasPrefix("mailto:") { return raw }
-        // Strip a leading "/" from raw so URL.resolve doesn't drop
-        // the base path component.
-        var rel = raw
-        if rel.hasPrefix("/") { rel.removeFirst() }
+        // Keep `raw` verbatim — `URL(string:relativeTo:)` follows
+        // RFC 3986, so root-relative refs like `/issues` resolve
+        // against the host root (`https://example.com/issues`) and
+        // path-relative refs like `docs/howto` resolve under the
+        // base's last directory. Glamour strips the leading slash
+        // and effectively breaks host-root semantics — we match the
+        // RFC instead.
         if let base = URL(string: baseURL),
-           let resolved = URL(string: rel, relativeTo: base) {
+           let resolved = URL(string: raw, relativeTo: base) {
             return resolved.absoluteString
         }
         return raw

@@ -67,4 +67,72 @@ import Testing
         #expect(out.contains("[x] done"))
         #expect(out.contains("[ ] open"))
     }
+
+    /// Regression for Codex review on PR #24 — a missing or invalid
+    /// `GLAMOUR_STYLE` file must not abort rendering. The renderer
+    /// should fall back to the terminal-derived default just like
+    /// glamour's `RenderWithEnvironmentConfig` does.
+    @Test func autoStyleSurvivesBadGlamourStyleEnv() throws {
+        let prior = ProcessInfo.processInfo.environment["GLAMOUR_STYLE"]
+        setenv("GLAMOUR_STYLE", "/tmp/gam-missing-\(UUID().uuidString).json", 1)
+        defer {
+            if let prior {
+                setenv("GLAMOUR_STYLE", prior, 1)
+            } else {
+                unsetenv("GLAMOUR_STYLE")
+            }
+        }
+        let renderer = try Renderer(
+            style: .auto,
+            terminal: Terminal(
+                colorEnabled: false,
+                trueColor: false,
+                eightBitColor: false,
+                hyperlinks: false,
+                background: .dark
+            )
+        )
+        let out = try renderer.render("# Hi")
+        #expect(out.contains("# Hi"))
+    }
+
+    /// Regression for Codex review on PR #24 — `[/issues](/issues)`
+    /// with `--base-url=https://example.com/foo/bar` should resolve
+    /// to `https://example.com/issues`, not `https://example.com/foo/issues`.
+    @Test func rootRelativeLinkPreservesLeadingSlash() throws {
+        let renderer = try Renderer(
+            style: .bundled(.notty),
+            baseURL: "https://example.com/foo/bar",
+            terminal: Terminal(
+                colorEnabled: false,
+                trueColor: false,
+                eightBitColor: false,
+                hyperlinks: false,
+                background: .none
+            )
+        )
+        let out = try renderer.render("See [the issues](/issues).")
+        #expect(out.contains("https://example.com/issues"),
+                "got: \(out)")
+        #expect(!out.contains("https://example.com/foo/issues"))
+    }
+
+    /// Path-relative links (no leading slash) must still resolve
+    /// under the base path so `[howto](docs/howto)` works.
+    @Test func pathRelativeLinkResolvesUnderBase() throws {
+        let renderer = try Renderer(
+            style: .bundled(.notty),
+            baseURL: "https://example.com/foo/",
+            terminal: Terminal(
+                colorEnabled: false,
+                trueColor: false,
+                eightBitColor: false,
+                hyperlinks: false,
+                background: .none
+            )
+        )
+        let out = try renderer.render("See [howto](docs/howto).")
+        #expect(out.contains("https://example.com/foo/docs/howto"),
+                "got: \(out)")
+    }
 }

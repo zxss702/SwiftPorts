@@ -102,9 +102,16 @@ public struct Renderer: Sendable {
         case .custom(let config): return config
         case .bundled(let style): return try StyleConfig.bundled(style)
         case .auto:
-            // 1. `GLAMOUR_STYLE` env wins.
-            if let env = Shell.env("GLAMOUR_STYLE"), !env.isEmpty {
-                return try StyleConfig.load(name: env)
+            // 1. `GLAMOUR_STYLE` env wins — but a missing file or
+            //    bad JSON must NOT abort rendering. `GLAMOUR_STYLE=
+            //    /tmp/missing.json gh pr view 42` should still print
+            //    the body, just falling back to the terminal-derived
+            //    default. Mirrors glamour's permissive behavior — its
+            //    `RenderWithEnvironmentConfig` falls back to dark
+            //    when the env's value is unrecognised.
+            if let env = Shell.env("GLAMOUR_STYLE"), !env.isEmpty,
+               let loaded = try? StyleConfig.load(name: env) {
+                return loaded
             }
             // 2. Non-color terminal → notty.
             if !terminal.colorEnabled {
