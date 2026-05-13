@@ -40,7 +40,9 @@ final class ANSIRenderer {
         pushBlock(style: style.document)
         visitChildren(of: document)
         let documentBlock = popBlock()
-        // Apply the document margins to the entire output.
+        // Apply the document margins to the entire output. Document
+        // is a true block — fill the bg across the page if the style
+        // calls for one.
         let doc = MarginWriter.apply(
             documentBlock.buffer,
             indent: 0,
@@ -48,6 +50,7 @@ final class ANSIRenderer {
             margin: Int(style.document.margin ?? 0),
             width: max(0, wordWrap - 2 * Int(style.document.margin ?? 0)),
             style: style.document.style,
+            fillBackground: true,
             on: terminal
         )
         return prefixSuffixed(doc, style: style.document.style)
@@ -220,6 +223,9 @@ final class ANSIRenderer {
         var content = codeBlock.code
         if content.hasSuffix("\n") { content.removeLast() }
         let blockStyle = style.codeBlock.block
+        // Code blocks are TRUE blocks: the bg should span the full
+        // block width even on short lines, matching glamour's
+        // monospaced-code-fence rendering.
         let inner = MarginWriter.apply(
             content,
             indent: 0,
@@ -227,6 +233,7 @@ final class ANSIRenderer {
             margin: 0,
             width: currentWidth,
             style: blockStyle.style,
+            fillBackground: true,
             on: terminal
         )
         emitBlock(inner, with: blockStyle, defaultMargin: true, trailingNewline: true)
@@ -503,6 +510,12 @@ final class ANSIRenderer {
 
     /// Emit a fully-rendered block: apply margin/indent/style, then
     /// write to the parent block buffer (or top-level output).
+    ///
+    /// `defaultMargin` doubles as "true-block" indicator — code
+    /// blocks / block quotes / lists / tables fill their bg across
+    /// the block width; inline-styled elements (headings,
+    /// paragraphs) leave the bg covering just the styled text and
+    /// its inline prefix/suffix, matching upstream glamour.
     private func emitBlock(
         _ content: String,
         with block: StyleBlock,
@@ -519,6 +532,7 @@ final class ANSIRenderer {
             margin: margin,
             width: currentWidth,
             style: block.style,
+            fillBackground: defaultMargin,
             on: terminal
         )
         let body = prefixSuffixed(framed, style: block.style)

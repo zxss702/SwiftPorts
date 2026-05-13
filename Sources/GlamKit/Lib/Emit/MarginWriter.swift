@@ -10,10 +10,15 @@ public enum MarginWriter {
 
     /// Apply margin (`margin` columns of leading space outside the
     /// indent) and indent (`indent` columns of `indentToken` inside
-    /// the margin) to every line of `content`. Trailing-edge padding
-    /// to `width` is applied when `style.backgroundColor != nil` —
-    /// otherwise the background color wouldn't extend to the full
-    /// terminal column, leaving a ragged colored bar.
+    /// the margin) to every line of `content`.
+    ///
+    /// When `fillBackground` is `true` AND `style.backgroundColor`
+    /// is non-nil, each line is right-padded with spaces to `width`
+    /// columns so the bg extends across the full block area —
+    /// what real glamour does for code blocks, block quotes, etc.
+    /// Inline-styled elements (headings, emphasis runs) leave
+    /// `fillBackground = false` so their bg covers only the text +
+    /// prefix/suffix, matching upstream glamour's H1 / H2 rendering.
     public static func apply(
         _ content: String,
         indent: Int,
@@ -21,6 +26,7 @@ public enum MarginWriter {
         margin: Int,
         width: Int,
         style: StylePrimitive,
+        fillBackground: Bool,
         on terminal: Terminal
     ) -> String {
         let leadingMargin = String(repeating: " ", count: max(0, margin))
@@ -28,7 +34,7 @@ public enum MarginWriter {
             ? String(repeating: indentToken, count: indent)
             : ""
 
-        let needsRightPad = style.backgroundColor != nil
+        let needsRightPad = fillBackground && style.backgroundColor != nil
         let (open, close) = Styled.envelope(style, on: terminal)
 
         var lines: [String] = []
