@@ -14,6 +14,7 @@
     "level_indent": 2
   },
   "heading": {
+    "block_prefix": "\n",
     "block_suffix": "\n",
     "color": "39",
     "bold": true

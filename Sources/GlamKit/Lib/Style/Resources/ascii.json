@@ -13,6 +13,7 @@
     "level_indent": 4
   },
   "heading": {
+    "block_prefix": "\n",
     "block_suffix": "\n"
   },
   "h1": {
