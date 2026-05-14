@@ -362,7 +362,7 @@ final class ANSIRenderer {
             }
         }
 
-        // Column widths = max printable width of any cell in the
+        // Natural widths = max printable width of any cell in the
         // column, header included. `Wrap.printWidth` skips ANSI
         // escape sequences so styled cells still measure correctly.
         var colWidths = [Int](repeating: 0, count: columnCount)
@@ -373,6 +373,69 @@ final class ANSIRenderer {
             for (i, cell) in row.enumerated() where i < columnCount {
                 colWidths[i] = max(colWidths[i], maxLineWidth(cell))
             }
+        }
+
+        // Constrain to the document width — matches upstream glamour,
+        // which shrinks long columns and truncates oversized cells
+        // with `…` so the table never overflows the terminal. Without
+        // this, a `What it does` column carrying multi-sentence prose
+        // can blow the table out past the right margin and force the
+        // host terminal to soft-wrap each row.
+        //
+        // Layout: `cell │ cell │ cell` — N-1 separators, each
+        // ` <colSep> ` = 3 printable chars.
+        //
+        // Allocation: columns whose natural width fits a fair share
+        // of the remaining budget keep their natural width; the
+        // saved space is redistributed equally across the oversized
+        // columns. That gives short identifier-like columns (e.g.
+        // `Product`) their natural width and lets the prose-heavy
+        // column take the rest, instead of squeezing every column
+        // proportionally (which mauls short columns to make room
+        // for a single long one).
+        let separatorBudget = max(0, columnCount - 1) * 3
+        let contentBudget = max(0, currentWidth - separatorBudget)
+        let naturalSum = colWidths.reduce(0, +)
+        if naturalSum > contentBudget, contentBudget > 0 {
+            let minWidth = 3
+            var remainingBudget = contentBudget
+            var remainingCols = columnCount
+            // Sorted column indices, smallest natural first.
+            let sortedIdx = (0..<columnCount)
+                .sorted { colWidths[$0] < colWidths[$1] }
+            var allocation = [Int](repeating: 0, count: columnCount)
+            var oversized: [Int] = []
+            for idx in sortedIdx {
+                let fair = remainingCols > 0
+                    ? remainingBudget / remainingCols
+                    : 0
+                if colWidths[idx] <= fair {
+                    allocation[idx] = colWidths[idx]
+                    remainingBudget -= colWidths[idx]
+                    remainingCols -= 1
+                } else {
+                    oversized.append(idx)
+                }
+            }
+            // Split the remaining budget equally across oversized
+            // columns, with the per-column minimum.
+            if !oversized.isEmpty {
+                let perCol = max(minWidth, remainingBudget / oversized.count)
+                var leftover = remainingBudget - perCol * oversized.count
+                for idx in oversized {
+                    allocation[idx] = perCol + (leftover > 0 ? 1 : 0)
+                    if leftover > 0 { leftover -= 1 }
+                }
+            }
+            // Final guard: if rounding produced a sum > budget,
+            // trim from the widest column.
+            while allocation.reduce(0, +) > contentBudget {
+                let widestIdx = allocation.indices
+                    .max(by: { allocation[$0] < allocation[$1] }) ?? 0
+                if allocation[widestIdx] <= minWidth { break }
+                allocation[widestIdx] -= 1
+            }
+            colWidths = allocation
         }
 
         let colSep = style.table.columnSeparator ?? "|"
@@ -438,9 +501,9 @@ final class ANSIRenderer {
     ) -> String {
         // Real glamour renders rows as `cell │ cell │ cell` — no
         // outer borders, single space on each side of the column
-        // separator. The leading `│` we used to emit duplicated the
-        // markdown source and added visual noise our box-character
-        // style had no use for.
+        // separator. Cells longer than their allocated column width
+        // get truncated with `…` so a wide cell doesn't shove the
+        // table past the terminal margin.
         let cellLines = cells.map {
             $0.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         }
@@ -452,12 +515,65 @@ final class ANSIRenderer {
                 let raw: String = cellLines.indices.contains(col)
                     && cellLines[col].indices.contains(line)
                     ? cellLines[col][line] : ""
-                cols.append(padCell(raw, width: widths[col],
+                let clipped = Self.truncateToWidth(raw, widths[col])
+                cols.append(padCell(clipped, width: widths[col],
                                     alignment: alignments[col] ?? .left))
             }
             out.append(cols.joined(separator: " \(columnSeparator) "))
         }
         return out.joined(separator: "\n")
+    }
+
+    /// Truncate `s` to fit in `width` printable columns, replacing
+    /// the last visible character with `…` (U+2026) when the string
+    /// is longer. ANSI CSI / OSC escape sequences are passed
+    /// through verbatim so the styling around an inline code span
+    /// or link survives the cut, and a final `\e[0m` reset is
+    /// appended so any opened SGR state can't leak past the cell
+    /// boundary.
+    static func truncateToWidth(_ s: String, _ width: Int) -> String {
+        if width <= 0 { return "" }
+        if Wrap.printWidth(s) <= width { return s }
+        if width == 1 { return "…" }
+
+        let chars = Array(s)
+        let printableBudget = width - 1   // reserve 1 for `…`
+        var out = ""
+        var printed = 0
+        var i = 0
+        while i < chars.count {
+            let c = chars[i]
+            if c == "\u{1B}", i + 1 < chars.count, chars[i + 1] == "[" {
+                // CSI sequence: copy through the final letter.
+                let start = i
+                i += 2
+                while i < chars.count, !chars[i].isLetter { i += 1 }
+                if i < chars.count { i += 1 }
+                out.append(String(chars[start..<i]))
+                continue
+            }
+            if c == "\u{1B}", i + 1 < chars.count, chars[i + 1] == "]" {
+                // OSC sequence: copy through BEL or ESC\.
+                let start = i
+                i += 2
+                while i < chars.count {
+                    if chars[i] == "\u{07}" { i += 1; break }
+                    if chars[i] == "\u{1B}",
+                       i + 1 < chars.count, chars[i + 1] == "\\" {
+                        i += 2
+                        break
+                    }
+                    i += 1
+                }
+                out.append(String(chars[start..<i]))
+                continue
+            }
+            if printed >= printableBudget { break }
+            out.append(c)
+            printed += 1
+            i += 1
+        }
+        return out + "\u{1B}[0m…"
     }
 
     private func renderTableSeparator(
