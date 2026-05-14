@@ -40,7 +40,9 @@ final class ANSIRenderer {
         pushBlock(style: style.document)
         visitChildren(of: document)
         let documentBlock = popBlock()
-        // Apply the document margins to the entire output.
+        // Apply the document margins to the entire output. Document
+        // is a true block — fill the bg across the page if the style
+        // calls for one.
         let doc = MarginWriter.apply(
             documentBlock.buffer,
             indent: 0,
@@ -48,6 +50,7 @@ final class ANSIRenderer {
             margin: Int(style.document.margin ?? 0),
             width: max(0, wordWrap - 2 * Int(style.document.margin ?? 0)),
             style: style.document.style,
+            fillBackground: true,
             on: terminal
         )
         return prefixSuffixed(doc, style: style.document.style)
@@ -152,7 +155,19 @@ final class ANSIRenderer {
            !(paragraph.parent is ListItem) {
             write("\n")
         }
-        let merged = Cascade.block(stack.last?.style ?? StyleBlock(), style.paragraph)
+        // `toBlock: false` so the AST-parent (document, blockquote,
+        // list-item, …) only contributes inline colour / weight to
+        // paragraph text — its own `block_prefix` / `block_suffix`
+        // and inline `prefix` / `suffix` are structural decorations
+        // belonging to THAT element type and must not leak into the
+        // child paragraph's wrapper. The previous default-true
+        // cascade was inheriting the document's `block_prefix:"\n"`
+        // and `block_suffix:"\n"` onto every paragraph, producing
+        // three extra blank lines around each one.
+        let merged = Cascade.block(
+            stack.last?.style ?? StyleBlock(),
+            style.paragraph,
+            toBlock: false)
         let block = renderInlineBlock(merged.style) { visitChildren(of: paragraph) }
         emitBlock(block, with: merged, defaultMargin: false, trailingNewline: true)
     }
@@ -220,6 +235,9 @@ final class ANSIRenderer {
         var content = codeBlock.code
         if content.hasSuffix("\n") { content.removeLast() }
         let blockStyle = style.codeBlock.block
+        // Code blocks are TRUE blocks: the bg should span the full
+        // block width even on short lines, matching glamour's
+        // monospaced-code-fence rendering.
         let inner = MarginWriter.apply(
             content,
             indent: 0,
@@ -227,6 +245,7 @@ final class ANSIRenderer {
             margin: 0,
             width: currentWidth,
             style: blockStyle.style,
+            fillBackground: true,
             on: terminal
         )
         emitBlock(inner, with: blockStyle, defaultMargin: true, trailingNewline: true)
@@ -343,7 +362,7 @@ final class ANSIRenderer {
             }
         }
 
-        // Column widths = max printable width of any cell in the
+        // Natural widths = max printable width of any cell in the
         // column, header included. `Wrap.printWidth` skips ANSI
         // escape sequences so styled cells still measure correctly.
         var colWidths = [Int](repeating: 0, count: columnCount)
@@ -354,6 +373,69 @@ final class ANSIRenderer {
             for (i, cell) in row.enumerated() where i < columnCount {
                 colWidths[i] = max(colWidths[i], maxLineWidth(cell))
             }
+        }
+
+        // Constrain to the document width — matches upstream glamour,
+        // which shrinks long columns and truncates oversized cells
+        // with `…` so the table never overflows the terminal. Without
+        // this, a `What it does` column carrying multi-sentence prose
+        // can blow the table out past the right margin and force the
+        // host terminal to soft-wrap each row.
+        //
+        // Layout: `cell │ cell │ cell` — N-1 separators, each
+        // ` <colSep> ` = 3 printable chars.
+        //
+        // Allocation: columns whose natural width fits a fair share
+        // of the remaining budget keep their natural width; the
+        // saved space is redistributed equally across the oversized
+        // columns. That gives short identifier-like columns (e.g.
+        // `Product`) their natural width and lets the prose-heavy
+        // column take the rest, instead of squeezing every column
+        // proportionally (which mauls short columns to make room
+        // for a single long one).
+        let separatorBudget = max(0, columnCount - 1) * 3
+        let contentBudget = max(0, currentWidth - separatorBudget)
+        let naturalSum = colWidths.reduce(0, +)
+        if naturalSum > contentBudget, contentBudget > 0 {
+            let minWidth = 3
+            var remainingBudget = contentBudget
+            var remainingCols = columnCount
+            // Sorted column indices, smallest natural first.
+            let sortedIdx = (0..<columnCount)
+                .sorted { colWidths[$0] < colWidths[$1] }
+            var allocation = [Int](repeating: 0, count: columnCount)
+            var oversized: [Int] = []
+            for idx in sortedIdx {
+                let fair = remainingCols > 0
+                    ? remainingBudget / remainingCols
+                    : 0
+                if colWidths[idx] <= fair {
+                    allocation[idx] = colWidths[idx]
+                    remainingBudget -= colWidths[idx]
+                    remainingCols -= 1
+                } else {
+                    oversized.append(idx)
+                }
+            }
+            // Split the remaining budget equally across oversized
+            // columns, with the per-column minimum.
+            if !oversized.isEmpty {
+                let perCol = max(minWidth, remainingBudget / oversized.count)
+                var leftover = remainingBudget - perCol * oversized.count
+                for idx in oversized {
+                    allocation[idx] = perCol + (leftover > 0 ? 1 : 0)
+                    if leftover > 0 { leftover -= 1 }
+                }
+            }
+            // Final guard: if rounding produced a sum > budget,
+            // trim from the widest column.
+            while allocation.reduce(0, +) > contentBudget {
+                let widestIdx = allocation.indices
+                    .max(by: { allocation[$0] < allocation[$1] }) ?? 0
+                if allocation[widestIdx] <= minWidth { break }
+                allocation[widestIdx] -= 1
+            }
+            colWidths = allocation
         }
 
         let colSep = style.table.columnSeparator ?? "|"
@@ -417,25 +499,81 @@ final class ANSIRenderer {
         alignments: [Markdown.Table.ColumnAlignment?],
         columnSeparator: String
     ) -> String {
+        // Real glamour renders rows as `cell │ cell │ cell` — no
+        // outer borders, single space on each side of the column
+        // separator. Cells longer than their allocated column width
+        // get truncated with `…` so a wide cell doesn't shove the
+        // table past the terminal margin.
         let cellLines = cells.map {
             $0.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         }
         let height = cellLines.map(\.count).max() ?? 1
         var out: [String] = []
         for line in 0..<height {
-            var parts: [String] = ["\(columnSeparator)"]
+            var cols: [String] = []
             for col in 0..<widths.count {
                 let raw: String = cellLines.indices.contains(col)
                     && cellLines[col].indices.contains(line)
                     ? cellLines[col][line] : ""
-                let aligned = padCell(raw, width: widths[col],
-                                      alignment: alignments[col] ?? .left)
-                parts.append(" \(aligned) ")
-                parts.append(columnSeparator)
+                let clipped = Self.truncateToWidth(raw, widths[col])
+                cols.append(padCell(clipped, width: widths[col],
+                                    alignment: alignments[col] ?? .left))
             }
-            out.append(parts.joined())
+            out.append(cols.joined(separator: " \(columnSeparator) "))
         }
         return out.joined(separator: "\n")
+    }
+
+    /// Truncate `s` to fit in `width` printable columns, replacing
+    /// the last visible character with `…` (U+2026) when the string
+    /// is longer. ANSI CSI / OSC escape sequences are passed
+    /// through verbatim so the styling around an inline code span
+    /// or link survives the cut, and a final `\e[0m` reset is
+    /// appended so any opened SGR state can't leak past the cell
+    /// boundary.
+    static func truncateToWidth(_ s: String, _ width: Int) -> String {
+        if width <= 0 { return "" }
+        if Wrap.printWidth(s) <= width { return s }
+        if width == 1 { return "…" }
+
+        let chars = Array(s)
+        let printableBudget = width - 1   // reserve 1 for `…`
+        var out = ""
+        var printed = 0
+        var i = 0
+        while i < chars.count {
+            let c = chars[i]
+            if c == "\u{1B}", i + 1 < chars.count, chars[i + 1] == "[" {
+                // CSI sequence: copy through the final letter.
+                let start = i
+                i += 2
+                while i < chars.count, !chars[i].isLetter { i += 1 }
+                if i < chars.count { i += 1 }
+                out.append(String(chars[start..<i]))
+                continue
+            }
+            if c == "\u{1B}", i + 1 < chars.count, chars[i + 1] == "]" {
+                // OSC sequence: copy through BEL or ESC\.
+                let start = i
+                i += 2
+                while i < chars.count {
+                    if chars[i] == "\u{07}" { i += 1; break }
+                    if chars[i] == "\u{1B}",
+                       i + 1 < chars.count, chars[i + 1] == "\\" {
+                        i += 2
+                        break
+                    }
+                    i += 1
+                }
+                out.append(String(chars[start..<i]))
+                continue
+            }
+            if printed >= printableBudget { break }
+            out.append(c)
+            printed += 1
+            i += 1
+        }
+        return out + "\u{1B}[0m…"
     }
 
     private func renderTableSeparator(
@@ -444,24 +582,21 @@ final class ANSIRenderer {
         rowSeparator: String,
         centerSeparator: String
     ) -> String {
-        var parts: [String] = [centerSeparator]
+        // Matching the row renderer: no outer borders, just
+        // `dashes┼dashes┼dashes`. The dash run includes the two
+        // padding columns the row renderer adds around each cell
+        // (`<sep>` becomes ` <sep> `), so vertical alignment between
+        // the separator row and the data rows is preserved. We do
+        // NOT emit the GFM `:`-alignment markers in the visual
+        // output — those belong in the markdown SOURCE, not in the
+        // rendered table.
+        let _ = alignments
+        var parts: [String] = []
         for col in 0..<widths.count {
-            // GFM separator: `:`-prefix marks left-aligned, suffix marks
-            // right-aligned, both marks center. The `nil` case (no
-            // explicit alignment) emits a plain dash run. Defaulting
-            // `nil` to `.left` here would conflate `|---|` with
-            // `|:---|` and drop the original alignment hint, which
-            // breaks round-tripping through downstream consumers that
-            // inspect the separator row.
-            let align = alignments[col]
-            let dashCount = max(1, widths[col])
-            let dashes = String(repeating: rowSeparator, count: dashCount)
-            let left  = (align == .center || align == .left)  ? ":" : rowSeparator
-            let right = (align == .center || align == .right) ? ":" : rowSeparator
-            parts.append(left + dashes + right)
-            parts.append(centerSeparator)
+            let dashCount = max(1, widths[col] + 2)
+            parts.append(String(repeating: rowSeparator, count: dashCount))
         }
-        return parts.joined()
+        return parts.joined(separator: centerSeparator)
     }
 
     private func padCell(
@@ -503,6 +638,12 @@ final class ANSIRenderer {
 
     /// Emit a fully-rendered block: apply margin/indent/style, then
     /// write to the parent block buffer (or top-level output).
+    ///
+    /// `defaultMargin` doubles as "true-block" indicator — code
+    /// blocks / block quotes / lists / tables fill their bg across
+    /// the block width; inline-styled elements (headings,
+    /// paragraphs) leave the bg covering just the styled text and
+    /// its inline prefix/suffix, matching upstream glamour.
     private func emitBlock(
         _ content: String,
         with block: StyleBlock,
@@ -519,6 +660,7 @@ final class ANSIRenderer {
             margin: margin,
             width: currentWidth,
             style: block.style,
+            fillBackground: defaultMargin,
             on: terminal
         )
         let body = prefixSuffixed(framed, style: block.style)
@@ -534,14 +676,16 @@ final class ANSIRenderer {
         write(Styled.render(inner, style: style, on: terminal))
     }
 
-    /// Apply block_prefix / prefix / suffix / block_suffix around
-    /// already-styled content.
+    /// Apply `block_prefix` / `block_suffix` around already-styled
+    /// content. The inline `prefix` / `suffix` are now applied
+    /// INSIDE the SGR envelope by `MarginWriter.apply` so the
+    /// styled bg/fg covers them — matching upstream glamour. Only
+    /// the block-level markers (e.g. blockquote's `> `) remain
+    /// outside.
     private func prefixSuffixed(_ s: String, style: StylePrimitive) -> String {
         var out = ""
         if let bp = style.blockPrefix { out += bp }
-        if let p = style.prefix       { out += p }
         out += s
-        if let s2 = style.suffix      { out += s2 }
         if let bs = style.blockSuffix { out += bs }
         return out
     }

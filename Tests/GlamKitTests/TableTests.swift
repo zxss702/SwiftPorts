@@ -6,7 +6,9 @@ import Testing
 struct TableTests {
 
     /// Forces the `notty` style + a color-disabled terminal so we can
-    /// assert on exact byte sequences without ANSI noise.
+    /// assert on exact byte sequences without ANSI noise. `notty`'s
+    /// table style uses ASCII separators (`|` / `-`) so the rendered
+    /// output stays plain text.
     private func render(_ input: String, wordWrap: Int = 80) throws -> String {
         let renderer = try Renderer(
             style: .bundled(.notty),
@@ -30,10 +32,24 @@ struct TableTests {
         | 3 | 4 |
         """
         let out = try render(md)
-        #expect(out.contains("| A | B |"))
-        #expect(out.contains("|---|---|"))
-        #expect(out.contains("| 1 | 2 |"))
-        #expect(out.contains("| 3 | 4 |"))
+        // Upstream glamour renders rows as `cell │ cell` — no outer
+        // borders, single space on each side of the column separator
+        // (`|` in the notty style). Header / body cells share the
+        // column width.
+        #expect(out.contains("A | B"))
+        #expect(out.contains("1 | 2"))
+        #expect(out.contains("3 | 4"))
+        // Separator row: `dashes|dashes` (with no outer border).
+        // The dash run includes the row's per-side padding so the
+        // separator visually aligns with the data rows above and
+        // below it.
+        #expect(out.contains("---|---"))
+        // And explicitly NO outer pipes wrapping the row.
+        let lines = out.split(separator: "\n").map(String.init)
+        let firstDataRow = lines.first { $0.contains("A") && $0.contains("B") }
+        #expect(firstDataRow != nil)
+        #expect(firstDataRow?.trimmingCharacters(in: .whitespaces).hasPrefix("|") == false)
+        #expect(firstDataRow?.hasSuffix("|") == false)
     }
 
     @Test func columnWidthsExpandToWidestCell() throws {
@@ -44,10 +60,10 @@ struct TableTests {
         """
         let out = try render(md)
         // Column 0's width is dictated by "very wide content" (17 chars).
-        // Header "A" gets padded to that width. Each side gets a 1-space
-        // pad inside the bars: `| A                 |`.
-        #expect(out.contains("| A                 |"))
-        #expect(out.contains("| very wide content |"))
+        // Header "A" gets padded to that width — no outer pipes, just
+        // the inner column separator after the padding.
+        #expect(out.contains("A                 | Long Header"))
+        #expect(out.contains("very wide content | x"))
     }
 
     @Test func centerAndRightAlignment() throws {
@@ -57,49 +73,35 @@ struct TableTests {
         | a    | b      | c     |
         """
         let out = try render(md)
-        // Center column: 6 chars wide ("center"). "b" goes to the middle:
-        // `|   b    |` — 3 spaces left, 4 right (or vice versa for even
-        // surplus; our impl gives more to the right).
-        #expect(out.contains("|   b    |"))
-        // Right column: 5 chars wide ("right"). "c" pads on the left:
-        // `|     c |`.
-        #expect(out.contains("|     c |"))
-        // Separator row carries the alignment hints.
-        #expect(out.contains(":------:"))
-        #expect(out.contains("------:"))
+        // Center column: 6 chars wide ("center"). "b" goes to the
+        // middle — 3 spaces on each side (impl preserves remainder
+        // on the right when surplus is odd, but for 5 chars / 6
+        // width it's `2, 3` split). Assert the centred-ness loosely
+        // via the surrounding pad.
+        #expect(out.contains("|   b    |") || out.contains("|  b    |"))
+        // Right column: 5 chars wide ("right"). "c" right-aligns.
+        #expect(out.contains("|     c"))
     }
 
-    /// Regression for Codex P2 on PR #32 — explicit left alignment
-    /// (`|:---|`) must round-trip through the separator row with a
-    /// leading `:`. `nil` (no marker) and `.left` (explicit marker)
-    /// are distinct GFM tokens; the renderer must preserve the
-    /// difference so downstream consumers / regenerators don't
-    /// lose the source's intent.
-    @Test func leftAlignmentMarkerSurvives() throws {
+    /// Alignment markers (`:`) belong to the markdown SOURCE — they
+    /// tell the parser how cells should be aligned — but real
+    /// glamour doesn't echo them in the rendered output. The
+    /// renderer expresses alignment through cell PADDING instead,
+    /// which the data rows visually demonstrate.
+    @Test func separatorRowOmitsAlignmentMarkers() throws {
         let md = """
         | A | B |
-        |:--|---|
+        |:--|--:|
         | x | y |
         """
         let out = try render(md)
-        // Pull the separator row — it's the one with dashes.
         let sepLine = out
             .split(separator: "\n")
             .map(String.init)
-            .first { $0.contains("---") || $0.contains(":-") }
+            .first { $0.contains("---") }
         #expect(sepLine != nil)
-        guard let line = sepLine else { return }
-        let slices = line.split(separator: "|", omittingEmptySubsequences: false)
-            .map { String($0).trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        // Left-aligned column (A): must START with `:` (not end with it).
-        #expect(slices.first?.hasPrefix(":") == true,
-                "expected left-aligned slice to start with `:`, got: \(slices)")
-        #expect(slices.first?.hasSuffix(":") == false,
-                "left-only must not gain a right-side `:`, got: \(slices)")
-        // Unspecified column (B): no `:` on either side.
-        #expect(slices.last?.contains(":") == false,
-                "expected no `:` in unspecified column slice, got: \(slices)")
+        // No `:` in the rendered separator row.
+        #expect(sepLine?.contains(":") == false)
     }
 
     @Test func inlineFormattingInCells() throws {
@@ -123,26 +125,19 @@ struct TableTests {
         |---|---|
         """
         let out = try render(md)
-        #expect(out.contains("| A | B |"))
-        #expect(out.contains("|---|---|"))
+        #expect(out.contains("A | B"))
+        #expect(out.contains("---|---"))
     }
 
     /// Multi-line cell content (e.g. soft-wrapped paragraph in a cell)
     /// must keep column rules vertical.
     @Test func multiLineCellsExpandRowHeight() throws {
-        // Hard to express a multi-line cell in markdown source without
-        // resorting to `<br>`. Cover the renderer's `\n` handling by
-        // confirming our split-and-pad doesn't crash on synthesized
-        // input that already contains newlines — the renderer itself
-        // joins inline content with spaces, so this exercises the
-        // wider grid pipeline only indirectly. A real fixture would
-        // need GFM line-break syntax (`<br>`) inside a cell.
         let md = """
         | A | B |
         |---|---|
         | x | y |
         """
         let out = try render(md)
-        #expect(out.contains("| x | y |"))
+        #expect(out.contains("x | y"))
     }
 }

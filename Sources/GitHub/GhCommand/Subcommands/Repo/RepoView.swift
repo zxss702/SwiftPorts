@@ -40,42 +40,20 @@ struct RepoView: AsyncParsableCommand {
         let client = try await CommandContext.apiClient()
         let repo: Repository = try await client.get("repos/\(target.slug)")
         let on = TTY.isStdoutColorEnabled
+
+        // Match upstream `gh repo view`'s default surface — name +
+        // description + README. Stats, badges, the default-branch
+        // line, the HTML URL and the topic list are NOT printed by
+        // default; users who want them ask for `--json` instead.
+        // Without this trim the metadata block ran ~7 lines longer
+        // than the reference `gh`, which made an embedded shell
+        // visibly noisier than the host's `gh` side-by-side.
         let nameToken = OSC8.wrap(repo.fullName, url: repo.htmlUrl.absoluteString, enabled: on)
         Shell.print(ANSI.bold(nameToken))
-        let visibility = repo.private ? "private" : "public"
-        let badges: [String] = {
-            var b: [String] = []
-            b.append(visibility == "public"
-                     ? StatusBadge.open(visibility, enabled: on)
-                     : StatusBadge.draft(visibility, enabled: on))
-            if repo.archived == true { b.append(StatusBadge.failure("archived", enabled: on)) }
-            if repo.fork    == true { b.append(StatusBadge.muted("fork",       enabled: on)) }
-            return b
-        }()
-        Shell.print(badges.joined(separator: "  "))
         if let desc = repo.description, !desc.isEmpty {
             Shell.print(desc)
         }
-        Shell.print("")
-        let stats = [
-            "★ \(repo.stargazersCount)",
-            "⑂ \(repo.forksCount)",
-            "issues \(repo.openIssuesCount)",
-            "language \(repo.language ?? "—")",
-            "license \(repo.license?.spdxId ?? "—")",
-        ].joined(separator: "  ")
-        Shell.print(stats)
-        Shell.print("default branch: \(repo.defaultBranch)")
-        Shell.print("html: \(repo.htmlUrl.absoluteString)")
-        if let topics = repo.topics, !topics.isEmpty {
-            Shell.print("topics: \(topics.joined(separator: ", "))")
-        }
 
-        // README is rendered by default — that's what upstream `gh
-        // repo view` does. A 404 (no README in the repo) is the only
-        // error we silently swallow. Real failures — transport, auth,
-        // rate-limit, 5xx — are propagated up so the user sees them
-        // instead of getting a successful exit with a missing section.
         do {
             if let rendered = try await Self.fetchAndRenderReadme(client: client, slug: target.slug),
                !rendered.isEmpty {
