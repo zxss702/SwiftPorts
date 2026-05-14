@@ -103,13 +103,19 @@ struct Log: AsyncParsableCommand {
             } else {
                 if !first { stdout.write(Data("\n".utf8)) }
                 stdout.write(Data(entry.defaultFormat().utf8))
-                if useStat || usePatch {
-                    let extra = try await additionalSection(
-                        client: client, entry: entry, stat: useStat, patch: usePatch)
-                    if !extra.isEmpty {
-                        stdout.write(Data("\n".utf8))
-                        stdout.write(Data(extra.utf8))
-                    }
+            }
+            // `--stat` and `-p` are independent of the format toggle —
+            // real git happily renders `log --oneline --stat -1` as a
+            // one-line subject followed by the per-file stat block.
+            // Previously the stat/patch branch only fired in the
+            // default-format arm of the if/else above, so combining
+            // `--oneline` with `--stat` silently dropped the stat.
+            if useStat || usePatch {
+                let extra = try await additionalSection(
+                    client: client, entry: entry, stat: useStat, patch: usePatch)
+                if !extra.isEmpty {
+                    stdout.write(Data("\n".utf8))
+                    stdout.write(Data(extra.utf8))
                 }
             }
             first = false

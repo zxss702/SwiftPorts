@@ -101,16 +101,15 @@ struct GitClientAddTests {
 
         let client = GitClient(workingDirectory: dir)
         try await client.add(paths: ["a.txt"])
-        // Commit currently does its own `git add -A` first, so to verify
-        // that only `a.txt` is in the *first* commit's tree, we must add
-        // and commit b.txt separately. For this test we just confirm
-        // that explicit-add doesn't fail and the file ends up tracked.
         let sha = try await client.commit(message: "init", author: nil, allowEmpty: false)
         #expect(sha.count == 40)
 
+        // Commit no longer auto-stages, so the tree contains exactly
+        // what we asked for — `a.txt` only, `b.txt` left in the
+        // worktree as an untracked file.
         let tracked = try runGit(["ls-tree", "-r", "--name-only", "HEAD"], in: dir)
             .split(separator: "\n").map(String.init).sorted()
-        #expect(tracked.contains("a.txt"))
+        #expect(tracked == ["a.txt"])
     }
 }
 #endif

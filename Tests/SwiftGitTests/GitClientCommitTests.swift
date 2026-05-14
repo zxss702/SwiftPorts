@@ -59,6 +59,8 @@ struct GitClientCommitTests {
         try Data("hello\n".utf8).write(to: dir.appendingPathComponent("README.md"))
 
         let client = GitClient(workingDirectory: dir)
+        // `commit` records the index; stage the new file first.
+        try await client.add(paths: [])
         let sha = try await client.commit(
             message: "init",
             author: GitSignature(name: "Test", email: "t@example.com"),
@@ -82,11 +84,13 @@ struct GitClientCommitTests {
 
         try Data("v1\n".utf8).write(to: dir.appendingPathComponent("file.txt"))
         let client = GitClient(workingDirectory: dir)
+        try await client.add(paths: [])
         let firstSHA = try await client.commit(
             message: "first", author: GitSignature(name: "T", email: "t@e.com"),
             allowEmpty: false)
 
         try Data("v2\n".utf8).write(to: dir.appendingPathComponent("file.txt"))
+        try await client.add(paths: [])
         let secondSHA = try await client.commit(
             message: "second", author: GitSignature(name: "T", email: "t@e.com"),
             allowEmpty: false)
@@ -106,6 +110,7 @@ struct GitClientCommitTests {
 
         try Data("hi\n".utf8).write(to: dir.appendingPathComponent("a.txt"))
         let client = GitClient(workingDirectory: dir)
+        try await client.add(paths: [])
         _ = try await client.commit(
             message: "init", author: GitSignature(name: "T", email: "t@e.com"),
             allowEmpty: false)
@@ -124,6 +129,7 @@ struct GitClientCommitTests {
 
         try Data("hi\n".utf8).write(to: dir.appendingPathComponent("a.txt"))
         let client = GitClient(workingDirectory: dir)
+        try await client.add(paths: [])
         let firstSHA = try await client.commit(
             message: "init", author: GitSignature(name: "T", email: "t@e.com"),
             allowEmpty: false)
@@ -144,6 +150,7 @@ struct GitClientCommitTests {
         try Data("x\n".utf8).write(to: dir.appendingPathComponent("x.txt"))
 
         let client = GitClient(workingDirectory: dir)
+        try await client.add(paths: [])
         let sha = try await client.commit(message: "no-author", author: nil, allowEmpty: false)
 
         let authorEmail = try runGit(["log", "-1", "--format=%ae", sha], in: dir)

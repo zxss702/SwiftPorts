@@ -98,7 +98,9 @@ struct GitClientInspectionTests {
         try Data("a\n".utf8).write(to: dir.appendingPathComponent("a.txt"))
         try Data("b\n".utf8).write(to: dir.appendingPathComponent("b.txt"))
 
-        let details = try await GitClient(workingDirectory: dir).commitDetailed(
+        let client = GitClient(workingDirectory: dir)
+        try await client.add(paths: [])
+        let details = try await client.commitDetailed(
             message: "init", author: GitSignature(name: "T", email: "t@e.com"),
             allowEmpty: false)
         #expect(details.isRoot == true)
@@ -116,11 +118,13 @@ struct GitClientInspectionTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         try Data("v1\n".utf8).write(to: dir.appendingPathComponent("file.txt"))
         let client = GitClient(workingDirectory: dir)
+        try await client.add(paths: [])
         _ = try await client.commit(
             message: "first", author: GitSignature(name: "T", email: "t@e.com"),
             allowEmpty: false)
 
         try Data("v2\n".utf8).write(to: dir.appendingPathComponent("file.txt"))
+        try await client.add(paths: [])
         let details = try await client.commitDetailed(
             message: "modify", author: GitSignature(name: "T", email: "t@e.com"),
             allowEmpty: false)

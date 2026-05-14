@@ -33,23 +33,61 @@ extension GitClient {
         }
     }
 
+    /// One index entry as `git ls-files -s` would render it: the
+    /// stage number (0 normally, 1/2/3 during a merge), the mode the
+    /// file is checked in with, the blob OID, and the relative path.
+    public struct IndexedEntry: Sendable, Equatable {
+        public let path: String
+        public let mode: UInt32
+        public let oid: String
+        public let stage: Int
+
+        public init(path: String, mode: UInt32, oid: String, stage: Int) {
+            self.path = path
+            self.mode = mode
+            self.oid = oid
+            self.stage = stage
+        }
+    }
+
     /// Tracked file paths (everything currently in the index).
-    /// Equivalent of `git ls-files`.
+    /// Equivalent of `git ls-files` with no flags.
     public func indexedPaths() async throws -> [String] {
+        try await indexedEntries().map(\.path)
+    }
+
+    /// Full index entries — mode, OID, stage, path. Backs
+    /// `git ls-files -s` / `--stage`. Returns entries in the order
+    /// libgit2 walks them (sorted by path with merge stages
+    /// interleaved per real git output).
+    public func indexedEntries() async throws -> [IndexedEntry] {
         try await withRepository { repo in
             var index: OpaquePointer?
             try check(git_repository_index(&index, repo))
             defer { git_index_free(index) }
             let count = Int(git_index_entrycount(index))
-            var paths: [String] = []
-            paths.reserveCapacity(count)
+            var entries: [IndexedEntry] = []
+            entries.reserveCapacity(count)
             for i in 0..<count {
-                if let entry = git_index_get_byindex(index, i)?.pointee,
-                   let p = entry.path {
-                    paths.append(String(cString: p))
+                guard let raw = git_index_get_byindex(index, i)?.pointee,
+                      let p = raw.path
+                else { continue }
+                var oid = raw.id
+                let oidString = String(unsafeUninitializedCapacity: 40) { buf in
+                    git_oid_fmt(buf.baseAddress, &oid)
+                    return 40
                 }
+                // The high 4 bits of `flags` encode the merge stage
+                // (`GIT_INDEX_ENTRY_STAGE`). Real ls-files prints
+                // that number as the third column.
+                let stage = Int((raw.flags >> 12) & 0x3)
+                entries.append(IndexedEntry(
+                    path: String(cString: p),
+                    mode: raw.mode,
+                    oid: oidString,
+                    stage: stage))
             }
-            return paths
+            return entries
         }
     }
 
