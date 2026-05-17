@@ -86,6 +86,10 @@ without ever running `Process`.
 | `GlabCommand`   | `glab`                       | The `glab` subcommand tree. `glab api` supports `--jq <filter>` (same JqKit integration). |
 | `SwiftGit`      | —                            | In-process `GitClient` impl backed by libgit2 1.9.x. Drop-in replacement for `ForgeKit`'s `ProcessGitClient` — no system `git` binary required. |
 | `GitCommand`    | `git`                        | A `git` CLI built on `SwiftGit`. SwiftBash can register `GitCommand` as the `git` builtin to shadow the system binary. |
+| `RipgrepKit`    | —                            | Pure-Swift port of BurntSushi/ripgrep — recursive code search with a gitignore-aware `Walker`, an `NSRegularExpression`-backed `PatternMatcher`, and JSON-Lines output compatible with rg `--json` consumers. |
+| `RgCommand`     | `rg`                         | `ripgrep(1)` — `-i/-S/-s`, `-F`, `-w`, `-x`, `-v`, `-U`, `-A/-B/-C`, `-t/-T`, `-g/--iglob`, `--hidden`, `--max-depth`, `--no-ignore` family, `-c`, `-l`, `--files`, `--json`, `--vimgrep`, …. |
+| `FdKit`         | —                            | Pure-Swift port of sharkdp/fd — file/directory finder. Reuses `RipgrepKit`'s `Walker` (with `.fdignore` swapped in for `.rgignore`) and layers a tri-syntax pattern matcher (regex / glob / fixed-string), `--type` / `--size` / `--changed-*` / `--exclude` filters, and an LS-style printer. |
+| `FdCommand`     | `fd`                         | `fd(1)` — `--glob`/`--regex`/`-F`, `-p/--full-path`, `-e/--extension`, `-t/--type`, `-E/--exclude`, `-S/--size`, depth bounds, `--max-results`/`-1`, `-H/--hidden`, `--no-ignore` family, `-a/--absolute-path`, `-0/--print0`, `--color`, …. |
 
 ### Surface coverage
 
@@ -125,6 +129,15 @@ without ever running `Process`.
   Library form (`JqKit`) is what powers `gh api --jq` and
   `glab api --jq` in-process — sandboxed iOS apps can finally filter
   API responses without spawning anything.
+- **`rg`** — ripgrep-compatible recursive search with a gitignore-aware
+  walker, regex / fixed-string / smart-case modes, type registry, JSON
+  Lines (`--json`), and the daily-driver flag set. Engine is reusable
+  via `RipgrepKit`.
+- **`fd`** — fd-compatible file finder layered on the same walker.
+  Supports regex / glob / fixed-string patterns (basename- or
+  full-path-matched), `--type`, `--size`, `--changed-*`, `--exclude`,
+  depth bounds, `--max-results`, the `--no-ignore` family, `.fdignore`,
+  and the standard output knobs (`-0`, `-a`, `--strip-cwd-prefix`).
 
 ## Quick start
 
@@ -139,6 +152,8 @@ swift run zip  out.zip src/                # zip(1)
 swift run unzip out.zip                    # unzip(1)
 swift run tar  -xzf release.tar.gz         # tar with gzip filter
 swift run jq   '.items[] | .name' < data.json
+swift run rg   'TODO' src/                # ripgrep-compatible search
+swift run fd   --glob '*.swift' src/      # fd-compatible file finder
 ```
 
 `swift build -c release` produces optimized binaries under
@@ -149,7 +164,7 @@ swift run jq   '.items[] | .name' < data.json
 
 The SDK libraries (`GitHub`, `GitLab`, `ZipKit`, `TarKit`, `GzipKit`,
 `Bzip2Kit`, `XzKit`, `ZstdKit`, `Lz4Kit`, `JqKit`, `SwiftGit`,
-`ForgeKit`) have **zero `ArgumentParser` dependency** — they're
+`RipgrepKit`, `FdKit`, `ForgeKit`) have **zero `ArgumentParser` dependency** — they're
 plain Swift APIs. Use them directly when you don't need a CLI:
 
 ```swift

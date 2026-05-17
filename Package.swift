@@ -135,6 +135,17 @@ let package = Package(
         .library(name: "RipgrepKit", targets: ["RipgrepKit"]),
         .library(name: "RgCommand", targets: ["RgCommand"]),
         .executable(name: "rg", targets: ["rg"]),
+
+        // FdKit umbrella — pure-Swift port of sharkdp/fd. Reuses
+        // RipgrepKit's gitignore-aware Walker for traversal; layers
+        // an fd-flavored pattern matcher (regex / glob / fixed
+        // strings, basename- or full-path-matched), type / size /
+        // time filters, and a printer over it. Respects `.gitignore`,
+        // `.ignore`, `.fdignore`, the user's global git ignore, and
+        // parent-directory ignore files just like upstream fd.
+        .library(name: "FdKit", targets: ["FdKit"]),
+        .library(name: "FdCommand", targets: ["FdCommand"]),
+        .executable(name: "fd", targets: ["fd"]),
     ],
     dependencies: [
         // Apple / swiftlang
@@ -854,6 +865,45 @@ let package = Package(
         .testTarget(
             name: "RgTests",
             dependencies: ["RgCommand", "RipgrepKit"]
+        ),
+
+        // MARK: FdKit umbrella
+        // Pure-Swift recursive file finder. Depends on RipgrepKit so
+        // the Walker / IgnoreSet / GitignoreGlob machinery is shared,
+        // keeping ignore-rule semantics identical across the two
+        // tools.
+        .target(
+            name: "FdKit",
+            dependencies: [
+                "ForgeKit",
+                "RipgrepKit",
+                .product(name: "ShellKit", package: "ShellKit"),
+            ],
+            path: "Sources/FdKit/Lib"
+        ),
+        .target(
+            name: "FdCommand",
+            dependencies: [
+                "FdKit",
+                "ForgeKit",
+                "RipgrepKit",
+                .product(name: "ShellKit", package: "ShellKit"),
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            path: "Sources/FdKit/FdCommand"
+        ),
+        .executableTarget(
+            name: "fd",
+            dependencies: ["FdCommand"],
+            path: "Sources/FdKit/fd"
+        ),
+        .testTarget(
+            name: "FdKitTests",
+            dependencies: ["FdKit", "RipgrepKit"]
+        ),
+        .testTarget(
+            name: "FdTests",
+            dependencies: ["FdCommand", "FdKit", "RipgrepKit"]
         ),
     ]
 )

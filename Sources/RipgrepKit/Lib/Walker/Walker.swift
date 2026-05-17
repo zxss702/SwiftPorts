@@ -27,15 +27,21 @@ public struct Walker: Sendable {
         /// same shape they typed.
         public let displayPath: String
         public let isDirectory: Bool
+        /// Distance from the walker root, with the root itself at
+        /// depth 0. Useful for fd's `--min-depth` filter and any
+        /// caller that wants to format depth-prefixed output.
+        public let depth: Int
 
         public init(url: URL,
                     relativePath: String,
                     displayPath: String,
-                    isDirectory: Bool) {
+                    isDirectory: Bool,
+                    depth: Int = 0) {
             self.url = url
             self.relativePath = relativePath
             self.displayPath = displayPath
             self.isDirectory = isDirectory
+            self.depth = depth
         }
     }
 
@@ -82,7 +88,8 @@ public struct Walker: Sendable {
                 let entry = Entry(url: root.url,
                                   relativePath: root.url.lastPathComponent,
                                   displayPath: root.display,
-                                  isDirectory: false)
+                                  isDirectory: false,
+                                  depth: 0)
                 try emit(entry)
                 emitted += 1
                 continue
@@ -283,6 +290,19 @@ public struct Walker: Sendable {
                         continue
                     }
                 }
+                // Directory entries are emitted alongside file
+                // descent when callers opt in (fd lists dirs;
+                // ripgrep doesn't). Directory-level filters (globs,
+                // type names) still gate them.
+                if options.emitDirectories
+                    && passesGlobFilters(relativePath: childRelative)
+                    && passesTypeFilters(name: name, relativePath: childRelative) {
+                    try emit(Entry(url: child,
+                                   relativePath: childRelative,
+                                   displayPath: displayPath,
+                                   isDirectory: true,
+                                   depth: depth + 1))
+                }
                 try descend(directory: child,
                             relative: childRelative,
                             depth: depth + 1,
@@ -307,7 +327,8 @@ public struct Walker: Sendable {
             try emit(Entry(url: child,
                            relativePath: childRelative,
                            displayPath: displayPath,
-                           isDirectory: false))
+                           isDirectory: false,
+                           depth: depth + 1))
         }
     }
 
@@ -334,14 +355,12 @@ public struct Walker: Sendable {
                 into: &ignores)
         }
         if options.respectDotIgnore {
-            try loadIgnoreFile(
-                at: directory.appendingPathComponent(".ignore"),
-                relativeBase: relativeBase,
-                into: &ignores)
-            try loadIgnoreFile(
-                at: directory.appendingPathComponent(".rgignore"),
-                relativeBase: relativeBase,
-                into: &ignores)
+            for name in options.dotIgnoreFilenames {
+                try loadIgnoreFile(
+                    at: directory.appendingPathComponent(name),
+                    relativeBase: relativeBase,
+                    into: &ignores)
+            }
         }
         if options.respectExclude && vcsActive && relativeBase.isEmpty {
             // .git/info/exclude lives at the repo root.
@@ -449,14 +468,12 @@ public struct Walker: Sendable {
                     into: &ignores)
             }
             if options.respectDotIgnore {
-                loadParentIgnoreFile(
-                    at: URL(fileURLWithPath: prefix + ".ignore"),
-                    baseAbsolute: parent,
-                    into: &ignores)
-                loadParentIgnoreFile(
-                    at: URL(fileURLWithPath: prefix + ".rgignore"),
-                    baseAbsolute: parent,
-                    into: &ignores)
+                for name in options.dotIgnoreFilenames {
+                    loadParentIgnoreFile(
+                        at: URL(fileURLWithPath: prefix + name),
+                        baseAbsolute: parent,
+                        into: &ignores)
+                }
             }
             // `.git/info/exclude` lives once per repo — at the VCS
             // boundary itself, not at every ancestor below it. Even
