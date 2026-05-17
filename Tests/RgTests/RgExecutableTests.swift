@@ -109,7 +109,10 @@ import Testing
     }
 
     @Test func gitignoreRespectedByDefault() async throws {
+        // `.git/HEAD` marks the tree as a real repo so the default
+        // `--require-git` (true) doesn't skip the `.gitignore`.
         let r = try await run(["beta", "."], in: [
+            ".git/HEAD":  "ref: refs/heads/main\n",
             ".gitignore": "*.log\n",
             "a.log":      "beta\n",
             "a.txt":      "beta\n",
@@ -121,6 +124,7 @@ import Testing
 
     @Test func noIgnoreOverridesGitignore() async throws {
         let r = try await run(["--no-ignore", "beta", "."], in: [
+            ".git/HEAD":  "ref: refs/heads/main\n",
             ".gitignore": "*.log\n",
             "a.log":      "beta\n",
         ])

@@ -62,7 +62,11 @@ import Testing
     }
 
     @Test func gitignoreRespected() throws {
+        // `.git/HEAD` marks the root as a real repo so the default
+        // `requireGit=true` doesn't skip the .gitignore. Same shape
+        // ripgrep needs to honor a checked-in gitignore.
         let paths = try walk([
+            ".git/HEAD": "ref: refs/heads/main\n",
             ".gitignore": "*.log\n",
             "a.txt": "x",
             "b.log": "y",
@@ -72,6 +76,7 @@ import Testing
 
     @Test func gitignoreNegation() throws {
         let paths = try walk([
+            ".git/HEAD": "ref: refs/heads/main\n",
             ".gitignore": "*.log\n!important.log\n",
             "important.log": "x",
             "other.log": "y",
@@ -83,6 +88,7 @@ import Testing
         var opts = WalkerOptions()
         opts.respectGitignore = false
         let paths = try walk([
+            ".git/HEAD": "ref: refs/heads/main\n",
             ".gitignore": "*.log\n",
             "a.txt": "x",
             "b.log": "y",
@@ -297,5 +303,137 @@ import Testing
                 paths.append(e.relativePath)
             }
         #expect(paths.sorted() == ["a.txt", "b.log"])
+    }
+
+    @Test func requireGitSkipsRootGitignoreOutsideRepo() throws {
+        // A non-repo dir with a stray .gitignore: under the default
+        // requireGit=true, that file should NOT filter results — it's
+        // a config quirk, not a checked-in repo policy. (Matches
+        // ripgrep's `require_git: true` default.)
+        let root = makeTree([
+            ".gitignore": "*.log\n",
+            "a.txt": "x",
+            "b.log": "y",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+        var paths: [String] = []
+        try Walker(options: WalkerOptions())
+            .walk(roots: [Walker.Root(url: root, display: ".")]) { e in
+                paths.append(e.relativePath)
+            }
+        #expect(paths.sorted() == ["a.txt", "b.log"])
+    }
+
+    @Test func noRequireGitAppliesRootGitignoreEverywhere() throws {
+        // With --no-require-git, the stray .gitignore is honored even
+        // outside a repo. Mirrors upstream's `--no-require-git`.
+        let root = makeTree([
+            ".gitignore": "*.log\n",
+            "a.txt": "x",
+            "b.log": "y",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+        var opts = WalkerOptions()
+        opts.requireGit = false
+        var paths: [String] = []
+        try Walker(options: opts)
+            .walk(roots: [Walker.Root(url: root, display: ".")]) { e in
+                paths.append(e.relativePath)
+            }
+        #expect(paths == ["a.txt"])
+    }
+
+    @Test func dotIgnoreAppliesEvenOutsideRepo() throws {
+        // .ignore is not VCS-scoped, so requireGit shouldn't affect it.
+        let root = makeTree([
+            ".ignore": "*.log\n",
+            "a.txt": "x",
+            "b.log": "y",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+        var paths: [String] = []
+        try Walker(options: WalkerOptions())
+            .walk(roots: [Walker.Root(url: root, display: ".")]) { e in
+                paths.append(e.relativePath)
+            }
+        #expect(paths == ["a.txt"])
+    }
+
+    @Test func worktreeGitFileCountsAsRepoMarker() throws {
+        // `git worktree add` creates `.git` as a *file* with
+        // `gitdir: /path/to/real`. Upstream rg treats that as a valid
+        // repo marker; the root's .gitignore must apply.
+        let root = makeTree([
+            ".git": "gitdir: /elsewhere/.git/worktrees/feature\n",
+            ".gitignore": "*.log\n",
+            "a.txt": "x",
+            "b.log": "y",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+        var paths: [String] = []
+        try Walker(options: WalkerOptions())
+            .walk(roots: [Walker.Root(url: root, display: ".")]) { e in
+                paths.append(e.relativePath)
+            }
+        #expect(paths == ["a.txt"])
+    }
+
+    @Test func jjMarkerCountsAsRepoMarker() throws {
+        // Jujutsu marks a repo root with `.jj/` instead of `.git/`.
+        // Treat it the same way — `.gitignore` at the root applies.
+        let root = makeTree([
+            ".jj/repo/store/type": "git\n",
+            ".gitignore": "*.log\n",
+            "a.txt": "x",
+            "b.log": "y",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+        var paths: [String] = []
+        try Walker(options: WalkerOptions())
+            .walk(roots: [Walker.Root(url: root, display: ".")]) { e in
+                paths.append(e.relativePath)
+            }
+        #expect(paths == ["a.txt"])
+    }
+
+    @Test func ignoreCaseInsensitiveMatchesMixedCase() throws {
+        // `ignoreCaseInsensitive` applies to gitignore-style matching.
+        // With it on, `*.LOG` in .gitignore matches `bug.log`.
+        let root = makeTree([
+            ".git/HEAD": "ref: refs/heads/main\n",
+            ".gitignore": "*.LOG\n",
+            "a.txt": "x",
+            "bug.log": "y",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var opts = WalkerOptions()
+        opts.ignoreCaseInsensitive = true
+        var paths: [String] = []
+        try Walker(options: opts)
+            .walk(roots: [Walker.Root(url: root, display: ".")]) { e in
+                paths.append(e.relativePath)
+            }
+        #expect(paths == ["a.txt"])
+    }
+
+    @Test func jjDirectoryIsNotDescendedInto() throws {
+        // We should never recurse into `.jj/` — its contents are VCS
+        // internals, not user files. (Same treatment as `.git/`.)
+        let root = makeTree([
+            ".jj/repo/store/type": "git\n",
+            ".jj/working_copy/data": "secrets",
+            "a.txt": "x",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var opts = WalkerOptions()
+        opts.hidden = true   // even with hidden enabled, .jj is skipped
+        var paths: [String] = []
+        try Walker(options: opts)
+            .walk(roots: [Walker.Root(url: root, display: ".")]) { e in
+                paths.append(e.relativePath)
+            }
+        #expect(paths == ["a.txt"])
     }
 }

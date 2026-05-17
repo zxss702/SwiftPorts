@@ -92,6 +92,13 @@ public struct Walker: Sendable {
             state.rootURL = root.url.standardizedFileURL
             state.rootDisplay = root.display
 
+            // Determine whether this root is inside a git/jj repo (an
+            // ancestor or the root itself has `.git`/`.jj`). Used to
+            // gate VCS ignore loading under `requireGit` — even when
+            // parent walking is off, we still need this answer.
+            state.insideVcsRepo = isInsideVcsRepo(rootPath: state.rootURL
+                .standardizedFileURL.path)
+
             // Seed the stack with global ignore (applies under every
             // directory) and parent-directory ignore files (loaded
             // shallowest-first so deeper rules override shallower ones
@@ -107,6 +114,7 @@ public struct Walker: Sendable {
             try loadIgnoreFiles(
                 at: state.rootURL,
                 relativeBase: "",
+                insideVcsRepo: state.insideVcsRepo,
                 into: &state.ignores)
             for extra in options.extraIgnoreFiles {
                 try loadIgnoreFile(at: extra,
@@ -146,6 +154,11 @@ public struct Walker: Sendable {
         var rootDisplay: String = "."
         var ignores: IgnoreSet = IgnoreSet()
         var rootDeviceID: UInt64? = nil
+        /// True when the search root sits inside a git/jj repository
+        /// (an ancestor or the root itself carries `.git` or `.jj`).
+        /// When `WalkerOptions.requireGit` is true, `.gitignore` and
+        /// `.git/info/exclude` loading is gated on this.
+        var insideVcsRepo: Bool = false
     }
 
     private func descend(
@@ -175,6 +188,7 @@ public struct Walker: Sendable {
         try loadIgnoreFiles(
             at: directory,
             relativeBase: relative,
+            insideVcsRepo: state.insideVcsRepo,
             into: &state.ignores)
 
         let fm = FileManager.default
@@ -207,11 +221,9 @@ public struct Walker: Sendable {
             try Task.checkCancellation()
 
             let name = child.lastPathComponent
-            // Skip the directory's own ignore files from the emitted
-            // set — they'd never match by themselves anyway.
-            if name == ".git" {
-                // Always skip the .git internals — even with
-                // --no-ignore-vcs, ripgrep doesn't walk into them.
+            // Always skip the VCS metadata dirs — even with
+            // --no-ignore-vcs, ripgrep doesn't walk into them.
+            if name == ".git" || name == ".jj" {
                 continue
             }
 
@@ -304,12 +316,18 @@ public struct Walker: Sendable {
     private func loadIgnoreFiles(
         at directory: URL,
         relativeBase: String,
+        insideVcsRepo: Bool,
         into ignores: inout IgnoreSet
     ) throws {
         if !options.respectGitignore && !options.respectDotIgnore
             && !options.respectExclude { return }
 
-        if options.respectGitignore {
+        // Under `requireGit`, VCS ignore handling is gated on actually
+        // being inside a git/jj repo — without that, a stray
+        // `.gitignore` in a non-repo directory must not filter results.
+        let vcsActive = !options.requireGit || insideVcsRepo
+
+        if options.respectGitignore && vcsActive {
             try loadIgnoreFile(
                 at: directory.appendingPathComponent(".gitignore"),
                 relativeBase: relativeBase,
@@ -325,7 +343,7 @@ public struct Walker: Sendable {
                 relativeBase: relativeBase,
                 into: &ignores)
         }
-        if options.respectExclude && relativeBase.isEmpty {
+        if options.respectExclude && vcsActive && relativeBase.isEmpty {
             // .git/info/exclude lives at the repo root.
             let exclude = directory
                 .appendingPathComponent(".git/info/exclude")
@@ -345,7 +363,8 @@ public struct Walker: Sendable {
         let text = String(decoding: data, as: UTF8.self)
         let entries = IgnoreSet.parse(
             contents: text,
-            baseRelativeToRoot: relativeBase)
+            baseRelativeToRoot: relativeBase,
+            caseInsensitive: options.ignoreCaseInsensitive)
         ignores.append(contentsOf: entries)
     }
 
@@ -398,16 +417,17 @@ public struct Walker: Sendable {
         let ordered = Array(parents.reversed())
 
         // VCS boundary: the deepest ancestor (closest to the search
-        // root) containing `.git`. If the search root itself contains
-        // `.git`, that's its own repo and no parent contributes VCS
-        // ignore. If nothing in the chain contains `.git`, there's no
-        // boundary and VCS ignores don't apply to any parent.
+        // root) carrying a VCS marker (`.git` dir/file or `.jj` dir).
+        // If the search root itself carries one, that's its own repo
+        // and no parent contributes VCS ignore. If nothing in the
+        // chain has a marker, there's no boundary and VCS ignores
+        // don't apply to any parent.
         let vcsBoundaryIndex: Int? = {
             guard options.respectGitignore || options.respectExclude
             else { return nil }
-            if containsGitDir(at: rootPath) { return nil }
+            if containsVcsMarker(at: rootPath) { return nil }
             for i in stride(from: ordered.count - 1, through: 0, by: -1)
-            where containsGitDir(at: ordered[i]) {
+            where containsVcsMarker(at: ordered[i]) {
                 return i
             }
             return nil
@@ -444,13 +464,45 @@ public struct Walker: Sendable {
         }
     }
 
-    /// True when `path` contains a `.git` directory (the standard
-    /// marker for a git repository root).
-    private func containsGitDir(at path: String) -> Bool {
+    /// True when `path` itself looks like a VCS repository root: it
+    /// contains `.git` (as a directory or a worktree-style file with
+    /// `gitdir:` content) or a `.jj` directory.
+    ///
+    /// Worktrees: `git worktree add` writes a `.git` *file* containing
+    /// `gitdir: /path/to/real/.git`. Upstream ripgrep accepts that as
+    /// a valid repo marker — so do we.
+    private func containsVcsMarker(at path: String) -> Bool {
         let prefix = path == "/" ? "/" : path + "/"
-        let url = URL(fileURLWithPath: prefix + ".git", isDirectory: true)
-        return (try? url.resourceValues(forKeys: [.isDirectoryKey]))?
-            .isDirectory ?? false
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        if fm.fileExists(atPath: prefix + ".git", isDirectory: &isDir) {
+            return true
+        }
+        if fm.fileExists(atPath: prefix + ".jj", isDirectory: &isDir),
+           isDir.boolValue {
+            return true
+        }
+        return false
+    }
+
+    /// True when `rootPath` or any of its ancestors carries a VCS
+    /// marker. Walked path-string-style for the same reason
+    /// `loadParentIgnoreFiles` does — `URL.deletingLastPathComponent`
+    /// is pathological on directory URLs.
+    private func isInsideVcsRepo(rootPath: String) -> Bool {
+        if containsVcsMarker(at: rootPath) { return true }
+        var current = rootPath
+        while true {
+            guard let slash = current.lastIndex(of: "/") else { break }
+            let next = slash == current.startIndex
+                ? "/"
+                : String(current[..<slash])
+            if next == current { break }
+            if containsVcsMarker(at: next) { return true }
+            if next == "/" { break }
+            current = next
+        }
+        return false
     }
 
     private func loadParentIgnoreFile(
@@ -463,7 +515,8 @@ public struct Walker: Sendable {
         let entries = IgnoreSet.parse(
             contents: text,
             baseRelativeToRoot: "",
-            baseAbsolute: baseAbsolute)
+            baseAbsolute: baseAbsolute,
+            caseInsensitive: options.ignoreCaseInsensitive)
         ignores.append(contentsOf: entries)
     }
 
@@ -488,7 +541,10 @@ public struct Walker: Sendable {
         guard let url else { return [] }
         guard let data = try? Data(contentsOf: url) else { return [] }
         let text = String(decoding: data, as: UTF8.self)
-        return IgnoreSet.parse(contents: text, baseRelativeToRoot: "")
+        return IgnoreSet.parse(
+            contents: text,
+            baseRelativeToRoot: "",
+            caseInsensitive: options.ignoreCaseInsensitive)
     }
 
     /// Search `~/.gitconfig` then `$XDG_CONFIG_HOME/git/config` for a
