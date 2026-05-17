@@ -224,4 +224,65 @@ import Testing
         let cmd = try Rg.parse(["-i", "pat", "."])
         #expect(cmd.rawArgv == ["-i", "pat", "."])
     }
+
+    // MARK: - Regression tests for review feedback
+
+    /// `rg --files some/dir` (one positional, no pattern) must scope
+    /// the listing to `some/dir`, not silently fall back to cwd.
+    /// Regression: PR #35 review comment — the positional was being
+    /// consumed as a pattern in `--files` mode.
+    @Test func filesModeScopesToPositionalPath() async throws {
+        let r = try await run(["--files", "sub"], in: [
+            "a.txt":     "x",
+            "sub/b.txt": "y",
+            "sub/c.txt": "z",
+        ])
+        defer { try? FileManager.default.removeItem(at: r.root) }
+        let lines = r.stdout
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map(String.init)
+            .sorted()
+        // Every listed file should live under `sub/`.
+        #expect(!lines.isEmpty)
+        for line in lines {
+            #expect(line.hasPrefix("sub/"),
+                    "unexpected listing outside sub/: \(line)")
+        }
+        #expect(lines.contains("sub/b.txt"))
+        #expect(lines.contains("sub/c.txt"))
+    }
+
+    /// Missing input paths must exit with code 2 (error), not 1
+    /// (no matches). Scripts gating on the exit code depend on the
+    /// distinction. Regression: PR #35 review comment.
+    @Test func missingPathExitsWithErrorCode() async throws {
+        let r = try await run(["pattern", "does-not-exist-xyz"])
+        defer { try? FileManager.default.removeItem(at: r.root) }
+        #expect(r.exit == 2)
+        #expect(r.stderr.contains("does-not-exist-xyz"))
+        #expect(r.stderr.contains("No such file"))
+    }
+
+    /// JSON `summary.searches_with_match` must count only files that
+    /// actually matched, not "any of the run matched". Regression: PR
+    /// #35 review comment.
+    @Test func jsonSummarySearchesWithMatchCountsMatchingFilesOnly() async throws {
+        let r = try await run(["--json", "beta", "."], in: [
+            "match.txt":   "beta\n",
+            "nomatch.txt": "alpha\n",
+            "match2.txt":  "beta line\nbeta-2\n",
+        ])
+        defer { try? FileManager.default.removeItem(at: r.root) }
+        let lines = r.stdout
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map(String.init)
+        let summary = try JSONSerialization.jsonObject(
+            with: Data(lines.last!.utf8)) as? [String: Any]
+        let data = summary?["data"] as? [String: Any]
+        let stats = data?["stats"] as? [String: Any]
+        let searches = stats?["searches"] as? Int
+        let withMatch = stats?["searches_with_match"] as? Int
+        #expect(searches == 3)
+        #expect(withMatch == 2)
+    }
 }

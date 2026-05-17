@@ -506,20 +506,26 @@ enum Parser {
         }
 
         // Resolve positional ownership ---------------------------------
-        if patternsAreExplicit {
+        // Pattern-less modes (`--files`, `--type-list`, `--help`,
+        // `--version`) treat every positional as a path — there's no
+        // pattern to consume.
+        let modeWantsPattern: Bool = {
+            switch out.specialMode {
+            case .none:                          return true
+            case .files, .typeList, .help, .version:
+                                                 return false
+            }
+        }()
+        if patternsAreExplicit || !modeWantsPattern {
             // All positionals are paths.
             out.paths = positionals
         } else {
             // First positional is the pattern, the rest are paths.
             if positionals.isEmpty {
-                // Allowed only when special mode is set.
-                if out.specialMode == .none {
-                    throw ArgError(message: "missing pattern")
-                }
-            } else {
-                patternsSet.append(positionals.first!)
-                out.paths = Array(positionals.dropFirst())
+                throw ArgError(message: "missing pattern")
             }
+            patternsSet.append(positionals.first!)
+            out.paths = Array(positionals.dropFirst())
         }
 
         pat.patterns = patternsSet

@@ -54,11 +54,17 @@ public enum RgExecutable {
                 }
             }
 
+            // Validate every supplied path *before* running the search.
+            // A missing input is an error condition in real rg (exit 2),
+            // not "found no matches" (exit 1); scripts gating on the
+            // exit code rely on that distinction.
+            var sawMissingPath = false
             for (url, display) in resolvedRoots where url.path != "-" {
                 try await Shell.authorize(url)
                 if !FileManager.default.fileExists(atPath: url.path) {
                     stderr.write(
                         "rg: \(display): No such file or directory\n")
+                    sawMissingPath = true
                 }
             }
 
@@ -75,6 +81,7 @@ public enum RgExecutable {
             //   0 — at least one match
             //   1 — no match
             //   2 — error
+            if sawMissingPath { return 2 }
             return outcome.hadMatch ? 0 : 1
         } catch let err as Parser.ArgError {
             stderr.write("rg: \(err.message)\n")

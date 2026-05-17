@@ -17,6 +17,7 @@ public struct JSONPrinter: Printer {
     private var totalMatchedLines = 0
     private var totalBytes = 0
     private var totalFiles = 0
+    private var totalFilesWithMatch = 0
     private var elapsedStart: Date = Date()
 
     public init(options: PrinterOptions) {
@@ -35,7 +36,7 @@ public struct JSONPrinter: Printer {
                 "stats": [
                     "elapsed": elapsedField(seconds: -elapsedStart.timeIntervalSinceNow),
                     "searches": totalFiles,
-                    "searches_with_match": totalMatchedLines > 0 ? totalFiles : 0,
+                    "searches_with_match": totalFilesWithMatch,
                     "bytes_searched": totalBytes,
                     "bytes_printed": 0,
                     "matched_lines": totalMatchedLines,
@@ -51,6 +52,7 @@ public struct JSONPrinter: Printer {
         totalBytes += result.bytesSearched
         totalMatchedLines += result.lineMatches
         totalMatches += result.totalMatches
+        if result.hasMatch { totalFilesWithMatch += 1 }
 
         if options.quiet { return }
         if !result.hasMatch { return }
