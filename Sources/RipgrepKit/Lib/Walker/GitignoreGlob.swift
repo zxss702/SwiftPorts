@@ -81,7 +81,10 @@ public struct GitignoreGlob: Sendable {
     /// Translate a gitignore-flavored glob into a Swift-compatible
     /// `NSRegularExpression` source. The output is anchored at the
     /// start and end (`^…$`) so `firstMatch` is sufficient.
-    static func compile(_ pattern: String, anchored: Bool) -> String {
+    ///
+    /// Exposed so sibling kits (FdKit's `--glob` mode) can reuse the
+    /// translation without re-deriving it.
+    public static func compile(_ pattern: String, anchored: Bool) -> String {
         var out = "^"
         if !anchored {
             // Unanchored patterns can begin at any path segment boundary.

@@ -1,0 +1,283 @@
+import Foundation
+import RipgrepKit
+import ShellKit
+import Testing
+@testable import FdKit
+
+/// Engine-level smoke tests against `Fd.run`. These cover the walker
+/// integration (gitignore / .fdignore / hidden / depth / filter) and
+/// the printer output shape. The CLI-layer tests live in `FdTests`.
+@Suite struct FdEngineTests {
+
+    @Test func listsAllEntriesUnderRoot() async throws {
+        let root = try makeTree([
+            "a.txt":     "x",
+            "b.md":      "y",
+            "sub/c.txt": "z",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let lines = try await runEngine(config: Fd.Configuration(),
+                                        rootPath: root.path)
+        let cleaned = stripRootPrefix(lines, root: root)
+        #expect(cleaned.contains("a.txt"))
+        #expect(cleaned.contains("b.md"))
+        #expect(cleaned.contains("sub/c.txt"))
+        #expect(cleaned.contains("sub/"))
+    }
+
+    @Test func regexAgainstBasename() async throws {
+        let root = try makeTree([
+            "a.swift": "x",
+            "b.txt":   "y",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var cfg = Fd.Configuration()
+        cfg.pattern.pattern = "\\.swift$"
+        cfg.pattern.caseMode = .caseSensitive
+        let lines = try await runEngine(config: cfg, rootPath: root.path)
+        let cleaned = stripRootPrefix(lines, root: root)
+        #expect(cleaned.contains("a.swift"))
+        #expect(!cleaned.contains("b.txt"))
+    }
+
+    @Test func globMatchesBasename() async throws {
+        let root = try makeTree([
+            "a.txt":     "x",
+            "b.md":      "y",
+            "sub/c.txt": "z",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var cfg = Fd.Configuration()
+        cfg.pattern.pattern = "*.txt"
+        cfg.pattern.syntax = .glob
+        let lines = try await runEngine(config: cfg, rootPath: root.path)
+        let cleaned = stripRootPrefix(lines, root: root)
+        #expect(cleaned.contains("a.txt"))
+        #expect(cleaned.contains("sub/c.txt"))
+        #expect(!cleaned.contains("b.md"))
+    }
+
+    @Test func gitignoreRespected() async throws {
+        let root = try makeTree([
+            ".git/HEAD":  "ref: refs/heads/main\n",
+            ".gitignore": "*.log\n",
+            "a.log":      "x",
+            "a.txt":      "y",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let lines = try await runEngine(config: Fd.Configuration(),
+                                        rootPath: root.path)
+        let cleaned = stripRootPrefix(lines, root: root)
+        #expect(cleaned.contains("a.txt"))
+        #expect(!cleaned.contains("a.log"))
+    }
+
+    @Test func fdignoreRespected() async throws {
+        let root = try makeTree([
+            ".git/HEAD": "ref: refs/heads/main\n",
+            ".fdignore": "drop/\n",
+            "drop/x":    "x",
+            "keep/y":    "y",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let lines = try await runEngine(config: Fd.Configuration(),
+                                        rootPath: root.path)
+        let cleaned = stripRootPrefix(lines, root: root)
+        #expect(cleaned.contains("keep/y"))
+        #expect(!cleaned.contains("drop/x"))
+        #expect(!cleaned.contains("drop/"))
+    }
+
+    @Test func hiddenFilesIncludedWithFlag() async throws {
+        let root = try makeTree([
+            ".secret":  "x",
+            "visible":  "y",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var cfg = Fd.Configuration()
+        cfg.walker.hidden = true
+        let lines = try await runEngine(config: cfg, rootPath: root.path)
+        let cleaned = stripRootPrefix(lines, root: root)
+        #expect(cleaned.contains(".secret"))
+        #expect(cleaned.contains("visible"))
+    }
+
+    @Test func maxResultsCapsOutput() async throws {
+        let root = try makeTree([
+            "a": "1",
+            "b": "2",
+            "c": "3",
+            "d": "4",
+            "e": "5",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var cfg = Fd.Configuration()
+        cfg.filter.maxResults = 2
+        let lines = try await runEngine(config: cfg, rootPath: root.path)
+        #expect(lines.count == 2)
+    }
+
+    @Test func typeFilterFilesOnly() async throws {
+        let root = try makeTree([
+            "a.txt":       "x",
+            "sub/b.txt":   "y",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var cfg = Fd.Configuration()
+        cfg.filter.fileTypes = [.file]
+        let lines = try await runEngine(config: cfg, rootPath: root.path)
+        let cleaned = stripRootPrefix(lines, root: root)
+        #expect(cleaned.contains("a.txt"))
+        #expect(cleaned.contains("sub/b.txt"))
+        // sub/ is a directory — must be excluded when filtering files.
+        #expect(!cleaned.contains("sub/"))
+    }
+
+    @Test func typeFilterDirectoriesOnly() async throws {
+        let root = try makeTree([
+            "a.txt":         "x",
+            "sub/b.txt":     "y",
+            "sub2/c.txt":    "z",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var cfg = Fd.Configuration()
+        cfg.filter.fileTypes = [.directory]
+        let lines = try await runEngine(config: cfg, rootPath: root.path)
+        let cleaned = stripRootPrefix(lines, root: root)
+        #expect(cleaned.contains("sub/"))
+        #expect(cleaned.contains("sub2/"))
+        #expect(!cleaned.contains("a.txt"))
+    }
+
+    @Test func excludePatternFiltersMatches() async throws {
+        let root = try makeTree([
+            "a.txt": "x",
+            "b.md":  "y",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var cfg = Fd.Configuration()
+        cfg.filter.excludePatterns = ["*.md"]
+        let lines = try await runEngine(config: cfg, rootPath: root.path)
+        let cleaned = stripRootPrefix(lines, root: root)
+        #expect(cleaned.contains("a.txt"))
+        #expect(!cleaned.contains("b.md"))
+    }
+
+    @Test func minDepthDropsRootImmediateChildren() async throws {
+        let root = try makeTree([
+            "a.txt":          "x",
+            "sub/b.txt":      "y",
+            "sub/nested/c":   "z",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var cfg = Fd.Configuration()
+        cfg.filter.minDepth = 2
+        let lines = try await runEngine(config: cfg, rootPath: root.path)
+        let cleaned = stripRootPrefix(lines, root: root)
+        #expect(!cleaned.contains("a.txt"))
+        #expect(cleaned.contains("sub/b.txt"))
+        #expect(cleaned.contains("sub/nested/c"))
+    }
+
+    @Test func print0UsesNullTerminator() async throws {
+        let root = try makeTree([
+            "a.txt": "x",
+            "b.txt": "y",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var cfg = Fd.Configuration()
+        cfg.printer.print0 = true
+        cfg.filter.fileTypes = [.file]
+        let stdoutSink = OutputSink()
+        let stderrSink = OutputSink()
+        _ = try await Fd.run(
+            configuration: cfg,
+            searchPaths: [Walker.Root(url: root, display: root.path)],
+            stdout: stdoutSink,
+            stderr: stderrSink)
+        stdoutSink.finish()
+        let raw = await stdoutSink.readAllString()
+        #expect(raw.contains("a.txt\0"))
+        #expect(raw.contains("b.txt\0"))
+        #expect(!raw.contains("a.txt\n"))
+    }
+
+    @Test func extensionFilter() async throws {
+        let root = try makeTree([
+            "a.swift": "x",
+            "b.md":    "y",
+            "c.swift": "z",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var cfg = Fd.Configuration()
+        cfg.pattern.extensions = ["swift"]
+        let lines = try await runEngine(config: cfg, rootPath: root.path)
+        let cleaned = stripRootPrefix(lines, root: root)
+        #expect(cleaned.contains("a.swift"))
+        #expect(cleaned.contains("c.swift"))
+        #expect(!cleaned.contains("b.md"))
+    }
+
+    // MARK: - Helpers
+
+    private func makeTree(_ tree: [String: String]) throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fd-engine-\(UUID().uuidString)",
+                                    isDirectory: true)
+        try FileManager.default.createDirectory(at: root,
+                                                withIntermediateDirectories: true)
+        for (path, content) in tree {
+            let url = root.appendingPathComponent(path)
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true)
+            try Data(content.utf8).write(to: url)
+        }
+        return root
+    }
+
+    /// Drive `Fd.run` against `rootPath` and return the newline-split
+    /// stdout lines.
+    private func runEngine(config: Fd.Configuration,
+                           rootPath: String) async throws -> [String] {
+        let stdoutSink = OutputSink()
+        let stderrSink = OutputSink()
+        _ = try await Fd.run(
+            configuration: config,
+            searchPaths: [Walker.Root(url: URL(fileURLWithPath: rootPath),
+                                      display: rootPath)],
+            stdout: stdoutSink,
+            stderr: stderrSink)
+        stdoutSink.finish()
+        let out = await stdoutSink.readAllString()
+        return out.split(separator: "\n", omittingEmptySubsequences: true)
+            .map(String.init)
+    }
+
+    /// Strip the temp-dir prefix off each line so assertions can match
+    /// `sub/c.txt`-shaped paths regardless of which temp dir the run
+    /// landed in. Display paths from the walker are root-prefixed
+    /// (`<root>/sub/c.txt`).
+    private func stripRootPrefix(_ lines: [String], root: URL) -> [String] {
+        let prefix = root.path + "/"
+        return lines.map { line -> String in
+            if line.hasPrefix(prefix) {
+                return String(line.dropFirst(prefix.count))
+            }
+            return line
+        }
+    }
+}

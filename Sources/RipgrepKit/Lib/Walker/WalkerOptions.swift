@@ -46,6 +46,14 @@ public struct WalkerOptions: Sendable {
     /// by `--no-ignore-dot` and `--no-ignore`.
     public var respectDotIgnore: Bool = true
 
+    /// The set of tool-specific dot-ignore filenames the walker harvests
+    /// in addition to `.gitignore`. Ripgrep uses `.ignore` and
+    /// `.rgignore`; fd uses `.ignore` and `.fdignore`. Callers swap this
+    /// list to align with the tool they're emulating. Filenames are
+    /// looked up relative to each visited directory (and to each parent
+    /// when `respectParentIgnore` is on).
+    public var dotIgnoreFilenames: [String] = [".ignore", ".rgignore"]
+
     /// Respect `.git/info/exclude` and the global git excludes file.
     /// Disabled by `--no-ignore-exclude`.
     public var respectExclude: Bool = true
@@ -86,6 +94,12 @@ public struct WalkerOptions: Sendable {
     /// shouldn't silently filter results. Disabled by
     /// `--no-require-git`, which makes VCS ignores apply universally.
     public var requireGit: Bool = true
+
+    /// When true, the walker also emits directory entries (in
+    /// addition to files). Ripgrep doesn't want directories — it
+    /// searches file contents — but fd lists them, so the walker
+    /// stays generic and the caller opts in.
+    public var emitDirectories: Bool = false
 
     public init() {}
 }
