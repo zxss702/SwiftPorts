@@ -14,12 +14,22 @@ public struct IgnoreSet: Sendable {
         public let glob: GitignoreGlob
         /// The directory the pattern was harvested in, relative to the
         /// walker root. Patterns are matched against
-        /// `pathRelativeToBase = pathRelativeToRoot - base`.
+        /// `pathRelativeToBase = pathRelativeToRoot - base`. Used when
+        /// `baseAbsolute` is nil.
         public let baseRelativeToRoot: String
+        /// Absolute path of the directory the pattern was harvested in.
+        /// When set, matching strips this prefix from the candidate's
+        /// absolute path. Used for entries loaded above the walker root
+        /// — parent-directory ignores — where there's no sensible
+        /// walker-root-relative base.
+        public let baseAbsolute: String?
 
-        public init(glob: GitignoreGlob, baseRelativeToRoot: String) {
+        public init(glob: GitignoreGlob,
+                    baseRelativeToRoot: String,
+                    baseAbsolute: String? = nil) {
             self.glob = glob
             self.baseRelativeToRoot = baseRelativeToRoot
+            self.baseAbsolute = baseAbsolute
         }
     }
 
@@ -53,17 +63,29 @@ public struct IgnoreSet: Sendable {
         case allow
     }
 
-    /// Decide whether `pathRelativeToRoot` is ignored.
+    /// Decide whether a path is ignored.
     ///
-    /// `isDirectory` matters for trailing-slash patterns. We iterate
-    /// `entries` in order (oldest first) and keep the final decision —
-    /// later rules override earlier ones.
+    /// `pathRelativeToRoot` drives matching for entries loaded from
+    /// inside the walker root (the common case). `pathAbsolute` (when
+    /// available) drives matching for entries loaded from above the
+    /// root — e.g. parent-directory gitignores.
+    ///
+    /// `isDirectory` matters for trailing-slash patterns. Entries are
+    /// iterated oldest first; later rules override earlier ones to
+    /// match `gitignore(5)` semantics.
     public func decide(pathRelativeToRoot: String,
+                       pathAbsolute: String? = nil,
                        isDirectory: Bool) -> Decision {
         var current: Decision = .none
         for entry in entries {
-            let rel = stripBase(entry.baseRelativeToRoot,
+            let rel: String?
+            if let absBase = entry.baseAbsolute {
+                guard let absPath = pathAbsolute else { continue }
+                rel = stripBase(absBase, from: absPath)
+            } else {
+                rel = stripBase(entry.baseRelativeToRoot,
                                 from: pathRelativeToRoot)
+            }
             guard let rel else { continue }
             if entry.glob.matches(rel, isDirectory: isDirectory) {
                 current = entry.glob.isNegation ? .allow : .ignore
@@ -86,8 +108,15 @@ public struct IgnoreSet: Sendable {
 
     /// Parse a gitignore-formatted file. Blank lines and `#`-prefixed
     /// comments are skipped. CRLF is tolerated.
+    ///
+    /// Pass `baseAbsolute` when the file lives above the walker root
+    /// (parent-directory ignores); matching strips that prefix from
+    /// the candidate's absolute path. Leave `baseAbsolute` nil for
+    /// in-root or global ignores; matching uses `baseRelativeToRoot`
+    /// against the path relative to the walker root.
     public static func parse(contents: String,
                              baseRelativeToRoot: String,
+                             baseAbsolute: String? = nil,
                              caseInsensitive: Bool = false) -> [Entry] {
         var out: [Entry] = []
         for rawLine in contents.split(omittingEmptySubsequences: false,
@@ -102,7 +131,8 @@ public struct IgnoreSet: Sendable {
                 let glob = try GitignoreGlob(pattern: line,
                                              caseInsensitive: caseInsensitive)
                 out.append(Entry(glob: glob,
-                                 baseRelativeToRoot: baseRelativeToRoot))
+                                 baseRelativeToRoot: baseRelativeToRoot,
+                                 baseAbsolute: baseAbsolute))
             } catch {
                 continue
             }

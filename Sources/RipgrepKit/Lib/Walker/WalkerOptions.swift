@@ -50,6 +50,22 @@ public struct WalkerOptions: Sendable {
     /// Disabled by `--no-ignore-exclude`.
     public var respectExclude: Bool = true
 
+    /// Walk parent directories of each search root, picking up
+    /// `.gitignore` / `.ignore` / `.rgignore` files along the way.
+    /// Mirrors upstream ripgrep's default. Disabled by
+    /// `--no-ignore-parent`.
+    public var respectParentIgnore: Bool = true
+
+    /// Read the user's global git ignore file (`core.excludesfile` or
+    /// `$XDG_CONFIG_HOME/git/ignore`, defaulting to
+    /// `~/.config/git/ignore`). Disabled by `--no-ignore-global`.
+    public var respectGlobalIgnore: Bool = true
+
+    /// Explicit override for the global ignore file. When `nil` the
+    /// walker derives the path from `core.excludesfile` /
+    /// `$XDG_CONFIG_HOME` / `$HOME`. Primarily a test seam.
+    public var globalIgnoreFile: URL? = nil
+
     /// Additional ignore files to load at the root (`--ignore-file`).
     public var extraIgnoreFiles: [URL] = []
 

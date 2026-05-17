@@ -145,4 +145,106 @@ import Testing
         ], options: opts)
         #expect(paths == ["b.md"])
     }
+
+    @Test func parentGitignoreApplies() throws {
+        // /repo/.gitignore says *.log; we search /repo/sub.
+        // The parent rule must reach down and ignore b.log.
+        let parent = makeTree([
+            ".gitignore": "*.log\n",
+            "sub/a.txt": "x",
+            "sub/b.log": "y",
+        ])
+        defer { try? FileManager.default.removeItem(at: parent) }
+
+        let searchRoot = parent.appendingPathComponent("sub")
+        var paths: [String] = []
+        try Walker(options: WalkerOptions())
+            .walk(roots: [Walker.Root(url: searchRoot, display: ".")]) { e in
+                paths.append(e.relativePath)
+            }
+        #expect(paths.sorted() == ["a.txt"])
+    }
+
+    @Test func noIgnoreParentDisablesWalkUp() throws {
+        let parent = makeTree([
+            ".gitignore": "*.log\n",
+            "sub/a.txt": "x",
+            "sub/b.log": "y",
+        ])
+        defer { try? FileManager.default.removeItem(at: parent) }
+
+        var opts = WalkerOptions()
+        opts.respectParentIgnore = false
+        let searchRoot = parent.appendingPathComponent("sub")
+        var paths: [String] = []
+        try Walker(options: opts)
+            .walk(roots: [Walker.Root(url: searchRoot, display: ".")]) { e in
+                paths.append(e.relativePath)
+            }
+        #expect(paths.sorted() == ["a.txt", "b.log"])
+    }
+
+    @Test func parentAnchoredPatternStaysAnchored() throws {
+        // /repo/.gitignore anchors `secret.txt` to /repo. A file with
+        // the same name under /repo/sub must NOT be ignored.
+        let parent = makeTree([
+            ".gitignore": "/secret.txt\n",
+            "secret.txt": "top",
+            "sub/secret.txt": "nested",
+        ])
+        defer { try? FileManager.default.removeItem(at: parent) }
+
+        let searchRoot = parent.appendingPathComponent("sub")
+        var paths: [String] = []
+        try Walker(options: WalkerOptions())
+            .walk(roots: [Walker.Root(url: searchRoot, display: ".")]) { e in
+                paths.append(e.relativePath)
+            }
+        #expect(paths == ["secret.txt"])
+    }
+
+    @Test func globalIgnoreApplies() throws {
+        // Stage a global ignore file pointing at *.log; the walker
+        // should pick it up via WalkerOptions.globalIgnoreFile.
+        let root = makeTree([
+            "a.txt": "x", "b.log": "y",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rg-global-\(UUID().uuidString)")
+        try Data("*.log\n".utf8).write(to: globalFile)
+        defer { try? FileManager.default.removeItem(at: globalFile) }
+
+        var opts = WalkerOptions()
+        opts.globalIgnoreFile = globalFile
+        var paths: [String] = []
+        try Walker(options: opts)
+            .walk(roots: [Walker.Root(url: root, display: ".")]) { e in
+                paths.append(e.relativePath)
+            }
+        #expect(paths == ["a.txt"])
+    }
+
+    @Test func noIgnoreGlobalDisablesGlobalFile() throws {
+        let root = makeTree([
+            "a.txt": "x", "b.log": "y",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rg-global-\(UUID().uuidString)")
+        try Data("*.log\n".utf8).write(to: globalFile)
+        defer { try? FileManager.default.removeItem(at: globalFile) }
+
+        var opts = WalkerOptions()
+        opts.globalIgnoreFile = globalFile
+        opts.respectGlobalIgnore = false
+        var paths: [String] = []
+        try Walker(options: opts)
+            .walk(roots: [Walker.Root(url: root, display: ".")]) { e in
+                paths.append(e.relativePath)
+            }
+        #expect(paths.sorted() == ["a.txt", "b.log"])
+    }
 }

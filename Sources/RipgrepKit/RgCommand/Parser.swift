@@ -239,6 +239,8 @@ enum Parser {
                     walker.respectGitignore = false
                     walker.respectDotIgnore = false
                     walker.respectExclude = false
+                    walker.respectParentIgnore = false
+                    walker.respectGlobalIgnore = false
                     i += 1; continue
                 case "no-ignore-vcs":
                     walker.respectGitignore = false; i += 1; continue
@@ -246,10 +248,12 @@ enum Parser {
                     walker.respectDotIgnore = false; i += 1; continue
                 case "no-ignore-exclude":
                     walker.respectExclude = false; i += 1; continue
-                case "no-ignore-global", "no-ignore-files",
-                     "no-ignore-parent", "no-require-git", "no-ignore-messages":
-                    // Accepted for parity; no global / parent-dir
-                    // gitignore lookup is implemented yet.
+                case "no-ignore-parent":
+                    walker.respectParentIgnore = false; i += 1; continue
+                case "no-ignore-global":
+                    walker.respectGlobalIgnore = false; i += 1; continue
+                case "no-ignore-files", "no-require-git", "no-ignore-messages":
+                    // Accepted for parity; not yet wired.
                     i += 1; continue
                 case "ignore-file":
                     let v = try value ?? takeValue(argv, &i)
@@ -695,6 +699,8 @@ OPTIONS
       --no-ignore           Don't read any ignore files.
       --no-ignore-vcs       Don't read .gitignore.
       --no-ignore-dot       Don't read .ignore / .rgignore.
+      --no-ignore-parent    Don't walk parent dirs for ignore files.
+      --no-ignore-global    Don't read the user's global git ignore.
       --ignore-file=PATH    Add PATH as an extra ignore file.
       --one-file-system     Stay on the starting filesystem.
 

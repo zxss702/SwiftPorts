@@ -65,6 +65,15 @@ public struct Walker: Sendable {
         emit: (Entry) throws -> Void
     ) throws -> Int {
         var emitted = 0
+        // Global ignore is read once and seeded into every root's
+        // stack — it doesn't change between roots and re-reading would
+        // be wasteful. We treat global patterns as if loaded at the
+        // walker root (no absolute base) so they apply universally
+        // with normal gitignore semantics.
+        var globalEntries: [IgnoreSet.Entry] = []
+        if options.respectGlobalIgnore && options.respectGitignore {
+            globalEntries = loadGlobalIgnoreEntries()
+        }
         for root in roots {
             let isDir = (try? root.url.resourceValues(forKeys: [.isDirectoryKey]))?
                 .isDirectory ?? false
@@ -82,6 +91,17 @@ public struct Walker: Sendable {
             var state = WalkState()
             state.rootURL = root.url.standardizedFileURL
             state.rootDisplay = root.display
+
+            // Seed the stack with global ignore (applies under every
+            // directory) and parent-directory ignore files (loaded
+            // shallowest-first so deeper rules override shallower ones
+            // — mirrors ripgrep's add_parents).
+            state.ignores.append(contentsOf: globalEntries)
+            if options.respectParentIgnore {
+                try loadParentIgnoreFiles(
+                    rootURL: state.rootURL,
+                    into: &state.ignores)
+            }
 
             // Bootstrap ignore-file harvest at the root before descending.
             try loadIgnoreFiles(
@@ -227,9 +247,12 @@ public struct Walker: Sendable {
             }()
 
             // Ignore-set decision. `.allow` un-ignores a previously
-            // ignored path; `.ignore` skips.
+            // ignored path; `.ignore` skips. Pass the absolute path
+            // too so parent-directory entries (which strip an absolute
+            // prefix) can match.
             let ignoreDecision = state.ignores.decide(
                 pathRelativeToRoot: childRelative,
+                pathAbsolute: child.standardizedFileURL.path,
                 isDirectory: isDir)
             if ignoreDecision == .ignore {
                 continue
@@ -324,6 +347,199 @@ public struct Walker: Sendable {
             contents: text,
             baseRelativeToRoot: relativeBase)
         ignores.append(contentsOf: entries)
+    }
+
+    /// Walk from `rootURL`'s parent up to the filesystem root,
+    /// loading `.gitignore` / `.ignore` / `.rgignore` (and
+    /// `.git/info/exclude` when we hit the directory that contains
+    /// `.git`) from each ancestor.
+    ///
+    /// Parent entries match against the candidate's absolute path, so
+    /// anchored patterns (`/build`) keep their meaning relative to
+    /// the ancestor they came from — not the walker root.
+    ///
+    /// Loaded shallowest-first so deeper ancestors override shallower
+    /// ones — matches `gitignore(5)` precedence.
+    private func loadParentIgnoreFiles(
+        rootURL: URL,
+        into ignores: inout IgnoreSet
+    ) throws {
+        if !options.respectGitignore && !options.respectDotIgnore
+            && !options.respectExclude { return }
+
+        // Work on the path string directly. `URL.deletingLastPathComponent`
+        // round-trips through `_CFURLCreateWithURLString` each call and
+        // accumulates `..` segments on directory URLs (created with
+        // `isDirectory: true`), so a parent walk via URL becomes
+        // pathologically slow — observed as a hang under the test
+        // runner. Stay in path-string land where the operation is O(1).
+        let rootPath = rootURL.standardizedFileURL.path
+        var parents: [String] = []
+        var current = rootPath
+        while true {
+            guard let slash = current.lastIndex(of: "/") else { break }
+            let next = slash == current.startIndex
+                ? "/"
+                : String(current[..<slash])
+            if next == current { break }
+            parents.append(next)
+            if next == "/" { break }
+            current = next
+        }
+        // Walk shallowest (closest to fs root) → deepest, so the most
+        // specific parent rules win.
+        for parent in parents.reversed() {
+            let prefix = parent == "/" ? "/" : parent + "/"
+            if options.respectGitignore {
+                loadParentIgnoreFile(
+                    at: URL(fileURLWithPath: prefix + ".gitignore"),
+                    baseAbsolute: parent,
+                    into: &ignores)
+            }
+            if options.respectDotIgnore {
+                loadParentIgnoreFile(
+                    at: URL(fileURLWithPath: prefix + ".ignore"),
+                    baseAbsolute: parent,
+                    into: &ignores)
+                loadParentIgnoreFile(
+                    at: URL(fileURLWithPath: prefix + ".rgignore"),
+                    baseAbsolute: parent,
+                    into: &ignores)
+            }
+            if options.respectExclude {
+                let gitDir = URL(fileURLWithPath: prefix + ".git",
+                                 isDirectory: true)
+                let isDir = (try? gitDir.resourceValues(
+                    forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+                if isDir {
+                    loadParentIgnoreFile(
+                        at: URL(fileURLWithPath: prefix + ".git/info/exclude"),
+                        baseAbsolute: parent,
+                        into: &ignores)
+                }
+            }
+        }
+    }
+
+    private func loadParentIgnoreFile(
+        at fileURL: URL,
+        baseAbsolute: String,
+        into ignores: inout IgnoreSet
+    ) {
+        guard let data = try? Data(contentsOf: fileURL) else { return }
+        let text = String(decoding: data, as: UTF8.self)
+        let entries = IgnoreSet.parse(
+            contents: text,
+            baseRelativeToRoot: "",
+            baseAbsolute: baseAbsolute)
+        ignores.append(contentsOf: entries)
+    }
+
+    /// Read the user's global gitignore. Lookup order:
+    ///   1. `WalkerOptions.globalIgnoreFile` (explicit override).
+    ///   2. `core.excludesfile` in `$HOME/.gitconfig` or
+    ///      `$XDG_CONFIG_HOME/git/config` (whichever exists; values
+    ///      in the former take precedence per `git-config(1)`).
+    ///   3. `$XDG_CONFIG_HOME/git/ignore`, defaulting to
+    ///      `$HOME/.config/git/ignore`.
+    ///
+    /// Returned entries have an empty `baseRelativeToRoot` and no
+    /// absolute base, so they behave like an unanchored gitignore
+    /// loaded at every walker root — the standard semantics for a
+    /// "global" file.
+    func loadGlobalIgnoreEntries() -> [IgnoreSet.Entry] {
+        let url: URL? = {
+            if let explicit = options.globalIgnoreFile { return explicit }
+            if let configured = globalIgnoreFromGitConfig() { return configured }
+            return defaultGlobalIgnoreFile()
+        }()
+        guard let url else { return [] }
+        guard let data = try? Data(contentsOf: url) else { return [] }
+        let text = String(decoding: data, as: UTF8.self)
+        return IgnoreSet.parse(contents: text, baseRelativeToRoot: "")
+    }
+
+    /// Search `~/.gitconfig` then `$XDG_CONFIG_HOME/git/config` for a
+    /// `core.excludesfile` value. The lookup is intentionally
+    /// lightweight — git's full INI parser isn't worth reimplementing
+    /// here, and the directive's grammar is well constrained.
+    private func globalIgnoreFromGitConfig() -> URL? {
+        let env = ProcessInfo.processInfo.environment
+        let home = env["HOME"].flatMap { $0.isEmpty ? nil : $0 }
+        var candidates: [URL] = []
+        if let home {
+            candidates.append(URL(fileURLWithPath: home)
+                .appendingPathComponent(".gitconfig"))
+        }
+        let xdg = env["XDG_CONFIG_HOME"].flatMap { $0.isEmpty ? nil : $0 }
+            ?? home.map { $0 + "/.config" }
+        if let xdg {
+            candidates.append(URL(fileURLWithPath: xdg)
+                .appendingPathComponent("git/config"))
+        }
+        for cfg in candidates {
+            guard let data = try? Data(contentsOf: cfg) else { continue }
+            let text = String(decoding: data, as: UTF8.self)
+            if let path = parseCoreExcludesFile(text), !path.isEmpty {
+                return URL(fileURLWithPath: expandTilde(path, home: home))
+            }
+        }
+        return nil
+    }
+
+    /// Default global ignore path when `core.excludesfile` is unset:
+    /// `$XDG_CONFIG_HOME/git/ignore` or `$HOME/.config/git/ignore`.
+    private func defaultGlobalIgnoreFile() -> URL? {
+        let env = ProcessInfo.processInfo.environment
+        let home = env["HOME"].flatMap { $0.isEmpty ? nil : $0 }
+        let xdg = env["XDG_CONFIG_HOME"].flatMap { $0.isEmpty ? nil : $0 }
+            ?? home.map { $0 + "/.config" }
+        guard let xdg else { return nil }
+        return URL(fileURLWithPath: xdg)
+            .appendingPathComponent("git/ignore")
+    }
+
+    /// Return the value of `core.excludesfile` (case-insensitive) from
+    /// a git-config-format INI file. Comments (`#` / `;`) and
+    /// surrounding whitespace / quotes are stripped.
+    private func parseCoreExcludesFile(_ contents: String) -> String? {
+        var inCore = false
+        for rawLine in contents.split(separator: "\n",
+                                      omittingEmptySubsequences: false) {
+            var line = String(rawLine)
+            // Drop comments.
+            if let hash = line.firstIndex(where: { $0 == "#" || $0 == ";" }) {
+                line = String(line[..<hash])
+            }
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty { continue }
+            if trimmed.hasPrefix("[") && trimmed.hasSuffix("]") {
+                let header = trimmed.dropFirst().dropLast()
+                    .trimmingCharacters(in: .whitespaces)
+                inCore = header.lowercased() == "core"
+                continue
+            }
+            guard inCore, let eq = trimmed.firstIndex(of: "=") else {
+                continue
+            }
+            let key = trimmed[..<eq]
+                .trimmingCharacters(in: .whitespaces).lowercased()
+            guard key == "excludesfile" else { continue }
+            var value = trimmed[trimmed.index(after: eq)...]
+                .trimmingCharacters(in: .whitespaces)
+            if value.hasPrefix("\"") && value.hasSuffix("\"") && value.count >= 2 {
+                value = String(value.dropFirst().dropLast())
+            }
+            return String(value)
+        }
+        return nil
+    }
+
+    private func expandTilde(_ path: String, home: String?) -> String {
+        guard path.hasPrefix("~"), let home, !home.isEmpty else { return path }
+        if path == "~" { return home }
+        if path.hasPrefix("~/") { return home + String(path.dropFirst(1)) }
+        return path
     }
 
     // MARK: - Filter helpers
