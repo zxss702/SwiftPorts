@@ -125,6 +125,16 @@ let package = Package(
         .library(name: "SwiftGit", targets: ["SwiftGit"]),
         .library(name: "GitCommand", targets: ["GitCommand"]),
         .executable(name: "git", targets: ["git"]),
+
+        // RipgrepKit umbrella — pure-Swift port of BurntSushi/ripgrep.
+        // Engine respects `.gitignore` / `.ignore` / `.rgignore`, has a
+        // `--type` registry mirroring upstream's defaults, supports
+        // multi-line / fixed-string / smart-case modes, and emits JSON
+        // Lines output compatible with `rg --json` consumers (Pi's grep
+        // tool, ripgrep editor plugins, etc.).
+        .library(name: "RipgrepKit", targets: ["RipgrepKit"]),
+        .library(name: "RgCommand", targets: ["RgCommand"]),
+        .executable(name: "rg", targets: ["rg"]),
     ],
     dependencies: [
         // Apple / swiftlang
@@ -805,6 +815,45 @@ let package = Package(
         .testTarget(
             name: "GitCommandTests",
             dependencies: ["GitCommand", "SwiftGit", "ForgeKit"]
+        ),
+
+        // MARK: RipgrepKit umbrella
+        // Pure-Swift recursive code search. The library has no system
+        // dependency (regex compiles through Foundation's
+        // `NSRegularExpression`, file traversal goes through
+        // FileManager + raw POSIX `readdir`-free APIs). The CLI lives
+        // in `RgCommand` so SwiftBash and other embedders can register
+        // `rg` as a builtin without pulling in the executable target.
+        .target(
+            name: "RipgrepKit",
+            dependencies: [
+                "ForgeKit",
+                .product(name: "ShellKit", package: "ShellKit"),
+            ],
+            path: "Sources/RipgrepKit/Lib"
+        ),
+        .target(
+            name: "RgCommand",
+            dependencies: [
+                "RipgrepKit",
+                "ForgeKit",
+                .product(name: "ShellKit", package: "ShellKit"),
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            path: "Sources/RipgrepKit/RgCommand"
+        ),
+        .executableTarget(
+            name: "rg",
+            dependencies: ["RgCommand"],
+            path: "Sources/RipgrepKit/rg"
+        ),
+        .testTarget(
+            name: "RipgrepKitTests",
+            dependencies: ["RipgrepKit"]
+        ),
+        .testTarget(
+            name: "RgTests",
+            dependencies: ["RgCommand", "RipgrepKit"]
         ),
     ]
 )

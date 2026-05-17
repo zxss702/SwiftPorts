@@ -49,6 +49,19 @@ public enum TTY {
 #endif
     }
 
+    /// True when stdin is attached to a terminal — i.e. nothing is
+    /// piped or redirected into the process. Tools like ripgrep gate
+    /// "search cwd vs read stdin" on this.
+    public static var isStdinTTY: Bool {
+#if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
+        return false
+#elseif os(Windows)
+        return _isatty(0) != 0
+#else
+        return isatty(0) != 0
+#endif
+    }
+
     /// True when colour escape codes should be emitted on stdout.
     /// Honors `NO_COLOR` (kill switch), `CLICOLOR_FORCE` (force-on),
     /// and otherwise gates on stdout-is-a-TTY.
