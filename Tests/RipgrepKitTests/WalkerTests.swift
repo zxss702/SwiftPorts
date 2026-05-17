@@ -147,9 +147,13 @@ import Testing
     }
 
     @Test func parentGitignoreApplies() throws {
-        // /repo/.gitignore says *.log; we search /repo/sub.
-        // The parent rule must reach down and ignore b.log.
+        // /repo/.gitignore says *.log; we search /repo/sub. The
+        // parent rule must reach down and ignore b.log. `.git/HEAD`
+        // marks parent as a real repo so the VCS scope includes it —
+        // without it, parent-`.gitignore` would be out-of-repo and
+        // correctly skipped (see parentGitignoreStopsAtRepoBoundary).
         let parent = makeTree([
+            ".git/HEAD": "ref: refs/heads/main\n",
             ".gitignore": "*.log\n",
             "sub/a.txt": "x",
             "sub/b.log": "y",
@@ -167,6 +171,7 @@ import Testing
 
     @Test func noIgnoreParentDisablesWalkUp() throws {
         let parent = makeTree([
+            ".git/HEAD": "ref: refs/heads/main\n",
             ".gitignore": "*.log\n",
             "sub/a.txt": "x",
             "sub/b.log": "y",
@@ -184,10 +189,56 @@ import Testing
         #expect(paths.sorted() == ["a.txt", "b.log"])
     }
 
+    @Test func parentGitignoreStopsAtRepoBoundary() throws {
+        // outer/.gitignore claims *.log, but outer is NOT a git repo.
+        // inner IS (has .git/), so when we search inner/sub the
+        // walker's VCS scope is inner — outer's gitignore lives in a
+        // different (or no) repo and must NOT silently hide keep.log.
+        let outer = makeTree([
+            ".gitignore": "*.log\n",
+            "inner/.git/HEAD": "ref: refs/heads/main\n",
+            "inner/sub/keep.log": "x",
+            "inner/sub/a.txt": "y",
+        ])
+        defer { try? FileManager.default.removeItem(at: outer) }
+
+        let searchRoot = outer.appendingPathComponent("inner/sub")
+        var paths: [String] = []
+        try Walker(options: WalkerOptions())
+            .walk(roots: [Walker.Root(url: searchRoot, display: ".")]) { e in
+                paths.append(e.relativePath)
+            }
+        #expect(paths.sorted() == ["a.txt", "keep.log"])
+    }
+
+    @Test func parentDotIgnoreCrossesRepoBoundary() throws {
+        // .ignore is NOT VCS-scoped — outer's .ignore must apply even
+        // when inner is its own repo. Mirrors upstream ripgrep, where
+        // only `.gitignore` / `.git/info/exclude` are gated on the
+        // repo boundary.
+        let outer = makeTree([
+            ".ignore": "*.log\n",
+            "inner/.git/HEAD": "ref: refs/heads/main\n",
+            "inner/sub/drop.log": "x",
+            "inner/sub/a.txt": "y",
+        ])
+        defer { try? FileManager.default.removeItem(at: outer) }
+
+        let searchRoot = outer.appendingPathComponent("inner/sub")
+        var paths: [String] = []
+        try Walker(options: WalkerOptions())
+            .walk(roots: [Walker.Root(url: searchRoot, display: ".")]) { e in
+                paths.append(e.relativePath)
+            }
+        #expect(paths == ["a.txt"])
+    }
+
     @Test func parentAnchoredPatternStaysAnchored() throws {
         // /repo/.gitignore anchors `secret.txt` to /repo. A file with
-        // the same name under /repo/sub must NOT be ignored.
+        // the same name under /repo/sub must NOT be ignored. `.git/`
+        // brings parent inside the VCS scope so the rule loads at all.
         let parent = makeTree([
+            ".git/HEAD": "ref: refs/heads/main\n",
             ".gitignore": "/secret.txt\n",
             "secret.txt": "top",
             "sub/secret.txt": "nested",

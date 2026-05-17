@@ -351,8 +351,14 @@ public struct Walker: Sendable {
 
     /// Walk from `rootURL`'s parent up to the filesystem root,
     /// loading `.gitignore` / `.ignore` / `.rgignore` (and
-    /// `.git/info/exclude` when we hit the directory that contains
-    /// `.git`) from each ancestor.
+    /// `.git/info/exclude`) from each ancestor.
+    ///
+    /// VCS ignores (`.gitignore`, `.git/info/exclude`) are scoped to
+    /// the *current* repository — they only load from ancestors at or
+    /// below the deepest ancestor containing `.git`. Otherwise an
+    /// unrelated `~/.gitignore` could silently hide matches when
+    /// searching a nested repo. `.ignore` / `.rgignore` aren't
+    /// VCS-bound and load from every ancestor.
     ///
     /// Parent entries match against the candidate's absolute path, so
     /// anchored patterns (`/build`) keep their meaning relative to
@@ -386,11 +392,32 @@ public struct Walker: Sendable {
             if next == "/" { break }
             current = next
         }
-        // Walk shallowest (closest to fs root) → deepest, so the most
-        // specific parent rules win.
-        for parent in parents.reversed() {
+
+        // Shallow → deep so deeper rules override shallower (gitignore
+        // precedence).
+        let ordered = Array(parents.reversed())
+
+        // VCS boundary: the deepest ancestor (closest to the search
+        // root) containing `.git`. If the search root itself contains
+        // `.git`, that's its own repo and no parent contributes VCS
+        // ignore. If nothing in the chain contains `.git`, there's no
+        // boundary and VCS ignores don't apply to any parent.
+        let vcsBoundaryIndex: Int? = {
+            guard options.respectGitignore || options.respectExclude
+            else { return nil }
+            if containsGitDir(at: rootPath) { return nil }
+            for i in stride(from: ordered.count - 1, through: 0, by: -1)
+            where containsGitDir(at: ordered[i]) {
+                return i
+            }
+            return nil
+        }()
+
+        for (i, parent) in ordered.enumerated() {
             let prefix = parent == "/" ? "/" : parent + "/"
-            if options.respectGitignore {
+            let withinRepo = vcsBoundaryIndex.map { i >= $0 } ?? false
+
+            if options.respectGitignore && withinRepo {
                 loadParentIgnoreFile(
                     at: URL(fileURLWithPath: prefix + ".gitignore"),
                     baseAbsolute: parent,
@@ -406,19 +433,24 @@ public struct Walker: Sendable {
                     baseAbsolute: parent,
                     into: &ignores)
             }
-            if options.respectExclude {
-                let gitDir = URL(fileURLWithPath: prefix + ".git",
-                                 isDirectory: true)
-                let isDir = (try? gitDir.resourceValues(
-                    forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-                if isDir {
-                    loadParentIgnoreFile(
-                        at: URL(fileURLWithPath: prefix + ".git/info/exclude"),
-                        baseAbsolute: parent,
-                        into: &ignores)
-                }
+            // `.git/info/exclude` lives once per repo — at the VCS
+            // boundary itself, not at every ancestor below it.
+            if options.respectExclude && i == vcsBoundaryIndex {
+                loadParentIgnoreFile(
+                    at: URL(fileURLWithPath: prefix + ".git/info/exclude"),
+                    baseAbsolute: parent,
+                    into: &ignores)
             }
         }
+    }
+
+    /// True when `path` contains a `.git` directory (the standard
+    /// marker for a git repository root).
+    private func containsGitDir(at path: String) -> Bool {
+        let prefix = path == "/" ? "/" : path + "/"
+        let url = URL(fileURLWithPath: prefix + ".git", isDirectory: true)
+        return (try? url.resourceValues(forKeys: [.isDirectoryKey]))?
+            .isDirectory ?? false
     }
 
     private func loadParentIgnoreFile(
