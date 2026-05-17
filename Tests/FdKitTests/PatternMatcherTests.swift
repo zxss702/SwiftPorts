@@ -96,4 +96,75 @@ import Testing
             _ = try PatternMatcher(opts)
         }
     }
+
+    // MARK: - highlightRange
+
+    @Test func highlightRangeAgainstBasename() throws {
+        var opts = PatternOptions()
+        opts.pattern = "\\.swift$"
+        opts.caseMode = .caseSensitive
+        let m = try PatternMatcher(opts)
+
+        let path = "src/foo.swift"
+        let range = m.highlightRange(in: path)
+        #expect(range != nil)
+        if let range {
+            #expect(String(path[range]) == ".swift")
+        }
+    }
+
+    @Test func highlightRangeHonorsFullPath() throws {
+        var opts = PatternOptions()
+        opts.pattern = "src/foo"
+        opts.matchFullPath = true
+        opts.caseMode = .caseSensitive
+        let m = try PatternMatcher(opts)
+
+        let path = "src/foo.swift"
+        let range = m.highlightRange(in: path)
+        #expect(range != nil)
+        if let range {
+            #expect(String(path[range]) == "src/foo")
+        }
+    }
+
+    @Test func highlightRangeReturnsNilForEmptyPattern() throws {
+        let m = try PatternMatcher(PatternOptions())
+        #expect(m.highlightRange(in: "anything") == nil)
+    }
+
+    @Test func highlightRangeReturnsNilWhenNoMatch() throws {
+        var opts = PatternOptions()
+        opts.pattern = "foo"
+        opts.caseMode = .caseSensitive
+        let m = try PatternMatcher(opts)
+        // Basename match against "x.txt" — `foo` doesn't appear.
+        #expect(m.highlightRange(in: "src/x.txt") == nil)
+    }
+
+    @Test func highlightRangeIgnoresTrailingSlashInBasenameMatch() throws {
+        var opts = PatternOptions()
+        opts.pattern = "^sub$"
+        opts.caseMode = .caseSensitive
+        let m = try PatternMatcher(opts)
+        // Printer adds a trailing `/` to dir entries. The basename
+        // regex should still match without the `/` leaking in.
+        let range = m.highlightRange(in: "parent/sub/")
+        #expect(range != nil)
+        if let range {
+            #expect(String("parent/sub/"[range]) == "sub")
+        }
+    }
+
+    @Test func highlightRangeRespectsSmartCase() throws {
+        var opts = PatternOptions()
+        opts.pattern = "readme"
+        opts.caseMode = .smartCase
+        let m = try PatternMatcher(opts)
+        let range = m.highlightRange(in: "doc/README.md")
+        #expect(range != nil)
+        if let range {
+            #expect(String("doc/README.md"[range]) == "README")
+        }
+    }
 }

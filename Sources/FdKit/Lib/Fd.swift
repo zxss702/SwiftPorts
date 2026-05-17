@@ -73,7 +73,10 @@ public enum Fd {
 
         let matcher = try PatternMatcher(config.pattern)
         let filter = EntryFilter(options: config.filter)
-        let printer = Printer(options: config.printer)
+        // The matcher feeds two stages: the engine asks it to decide
+        // whether an entry passes, and the printer asks it where to
+        // overlay the highlight color on the path it's about to emit.
+        let printer = Printer(options: config.printer, matcher: matcher)
 
         let roots: [Walker.Root] = searchPaths.isEmpty
             ? [Walker.Root(url: Shell.currentDirectory, display: ".")]

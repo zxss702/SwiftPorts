@@ -289,6 +289,158 @@ import Testing
                 "ANSI escape leaked with color=false: \(raw)")
     }
 
+    // MARK: - Match highlighting
+
+    /// The matched portion of the path is painted with the highlight
+    /// code, and the rest gets the base style. Use codes we can
+    /// assert on exactly.
+    @Test func matchHighlightPaintsOnlyTheMatchedPortion() async throws {
+        let root = try makeTree([
+            "src/foo.swift": "x",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var cfg = Fd.Configuration()
+        cfg.printer.color = true
+        cfg.printer.lsColors = LsColors(spec: "")
+        cfg.printer.matchHighlight = "33"
+        cfg.pattern.pattern = "\\.swift$"
+        cfg.pattern.caseMode = .caseSensitive
+        let stdoutSink = OutputSink()
+        let stderrSink = OutputSink()
+        _ = try await Fd.run(
+            configuration: cfg,
+            searchPaths: [Walker.Root(url: root, display: root.path)],
+            stdout: stdoutSink,
+            stderr: stderrSink)
+        stdoutSink.finish()
+        let raw = await stdoutSink.readAllString()
+        // The match-highlight escape must precede `.swift` and the
+        // reset escape must follow it.
+        #expect(raw.contains("\u{1B}[33m.swift\u{1B}[0m"),
+                "match highlight not applied: \(raw)")
+        // The pre-match path should be unstyled (LsColors spec is empty).
+        #expect(raw.contains("foo\u{1B}[33m.swift"))
+    }
+
+    /// With `--full-path`, the highlight can span path separators.
+    @Test func matchHighlightSpansFullPath() async throws {
+        let root = try makeTree([
+            "a/b/c/leaf.txt": "x",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var cfg = Fd.Configuration()
+        cfg.printer.color = true
+        cfg.printer.lsColors = LsColors(spec: "")
+        cfg.printer.matchHighlight = "33"
+        cfg.pattern.pattern = "b/c"
+        cfg.pattern.matchFullPath = true
+        cfg.pattern.caseMode = .caseSensitive
+        let stdoutSink = OutputSink()
+        let stderrSink = OutputSink()
+        _ = try await Fd.run(
+            configuration: cfg,
+            searchPaths: [Walker.Root(url: root, display: root.path)],
+            stdout: stdoutSink,
+            stderr: stderrSink)
+        stdoutSink.finish()
+        let raw = await stdoutSink.readAllString()
+        #expect(raw.contains("\u{1B}[33mb/c\u{1B}[0m"),
+                "full-path highlight missing: \(raw)")
+    }
+
+    /// When there's no pattern, no highlight should appear — even
+    /// though base coloring still does.
+    @Test func emptyPatternDoesNotPaintAnyHighlight() async throws {
+        let root = try makeTree([
+            "a.swift": "x",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var cfg = Fd.Configuration()
+        cfg.printer.color = true
+        cfg.printer.lsColors = LsColors(spec: "*.swift=38;5;202")
+        cfg.printer.matchHighlight = "01;31"
+        // cfg.pattern.pattern stays empty.
+        let stdoutSink = OutputSink()
+        let stderrSink = OutputSink()
+        _ = try await Fd.run(
+            configuration: cfg,
+            searchPaths: [Walker.Root(url: root, display: root.path)],
+            stdout: stdoutSink,
+            stderr: stderrSink)
+        stdoutSink.finish()
+        let raw = await stdoutSink.readAllString()
+        #expect(raw.contains("\u{1B}[38;5;202m"),
+                "base style missing: \(raw)")
+        #expect(!raw.contains("\u{1B}[01;31m"),
+                "highlight leaked under empty pattern: \(raw)")
+    }
+
+    /// Match highlight overlays the base style: pre/post segments
+    /// keep the base code, the matched bytes get the highlight code.
+    @Test func matchHighlightOverlaysOnBaseStyle() async throws {
+        let root = try makeTree([
+            "a.swift": "x",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var cfg = Fd.Configuration()
+        cfg.printer.color = true
+        cfg.printer.lsColors = LsColors(spec: "*.swift=32")
+        cfg.printer.matchHighlight = "31"
+        cfg.pattern.pattern = "\\.swift$"
+        cfg.pattern.caseMode = .caseSensitive
+        let stdoutSink = OutputSink()
+        let stderrSink = OutputSink()
+        _ = try await Fd.run(
+            configuration: cfg,
+            searchPaths: [Walker.Root(url: root, display: root.path)],
+            stdout: stdoutSink,
+            stderr: stderrSink)
+        stdoutSink.finish()
+        let raw = await stdoutSink.readAllString()
+        // The path is `<root.path>/a.swift`. With LsColors `*.swift=32`
+        // and matchHighlight `31`, the pre-match segment (root.path
+        // ending in `…/a`) wears `\e[32m…\e[0m` and the matched
+        // `.swift` wears `\e[31m.swift\e[0m`. We assert on the
+        // junction so the temp-dir prefix doesn't make the test brittle.
+        #expect(raw.contains("a\u{1B}[0m\u{1B}[31m.swift\u{1B}[0m"),
+                "expected base→highlight junction: \(raw)")
+        #expect(raw.contains("\u{1B}[32m"),
+                "expected base color code: \(raw)")
+    }
+
+    /// `matchHighlight = nil` disables highlighting while leaving the
+    /// base color path alone.
+    @Test func nilMatchHighlightDisablesOverlay() async throws {
+        let root = try makeTree([
+            "a.swift": "x",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var cfg = Fd.Configuration()
+        cfg.printer.color = true
+        cfg.printer.lsColors = LsColors(spec: "*.swift=32")
+        cfg.printer.matchHighlight = nil
+        cfg.pattern.pattern = "\\.swift$"
+        cfg.pattern.caseMode = .caseSensitive
+        let stdoutSink = OutputSink()
+        let stderrSink = OutputSink()
+        _ = try await Fd.run(
+            configuration: cfg,
+            searchPaths: [Walker.Root(url: root, display: root.path)],
+            stdout: stdoutSink,
+            stderr: stderrSink)
+        stdoutSink.finish()
+        let raw = await stdoutSink.readAllString()
+        #expect(raw.contains("\u{1B}[32m"),
+                "base style missing: \(raw)")
+        #expect(!raw.contains("\u{1B}[01;31m") && !raw.contains("\u{1B}[31m"),
+                "highlight code leaked despite nil setting: \(raw)")
+    }
+
     // MARK: - Helpers
 
     private func makeTree(_ tree: [String: String]) throws -> URL {

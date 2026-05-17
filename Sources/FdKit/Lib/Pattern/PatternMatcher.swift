@@ -89,6 +89,63 @@ public struct PatternMatcher: Sendable {
         }
     }
 
+    /// Locate the pattern's hit within `path` for match-highlighting.
+    ///
+    /// Mirrors fd's own behavior: the matched region is painted by the
+    /// printer in a contrasting color so users can see *why* an entry
+    /// was returned. Returns the byte range within `path` that should
+    /// be highlighted, or `nil` if there is no regex (empty-pattern
+    /// mode, or the run is in pure-extension-filter mode).
+    ///
+    /// `path` is whatever the printer is about to emit — possibly the
+    /// `displayPath`, possibly the absolute form, possibly with a
+    /// trailing `/` from `directorySlash` decoration. The matcher
+    /// re-runs its regex against either the basename slice of `path`
+    /// (default) or the whole string (`--full-path`), and translates
+    /// the resulting range back into the original `path` index space.
+    public func highlightRange(in path: String) -> Range<String.Index>? {
+        guard let regex else { return nil }
+
+        if matchFullPath {
+            let ns = NSRange(path.startIndex..., in: path)
+            guard let m = regex.firstMatch(in: path, options: [], range: ns),
+                  let r = Range(m.range, in: path) else { return nil }
+            return r
+        }
+
+        // Find the basename slice. Drop a trailing `/` first — the
+        // printer adds it as directory decoration; the byte isn't
+        // part of the name and would shift the regex by one. Then
+        // locate the last `/` *within the trimmed region* and take
+        // the suffix.
+        let endExcludingTrailingSlash: String.Index = path.hasSuffix("/")
+            ? path.index(before: path.endIndex)
+            : path.endIndex
+        let basenameStart: String.Index = {
+            let searchRange = path.startIndex..<endExcludingTrailingSlash
+            if let slash = path.range(of: "/",
+                                      options: .backwards,
+                                      range: searchRange)?.lowerBound {
+                return path.index(after: slash)
+            }
+            return path.startIndex
+        }()
+        guard basenameStart < endExcludingTrailingSlash else { return nil }
+        let basename = String(path[basenameStart..<endExcludingTrailingSlash])
+
+        let ns = NSRange(basename.startIndex..., in: basename)
+        guard let m = regex.firstMatch(in: basename, options: [], range: ns),
+              let r = Range(m.range, in: basename) else { return nil }
+
+        let preLen = basename.distance(from: basename.startIndex,
+                                       to: r.lowerBound)
+        let matchLen = basename.distance(from: r.lowerBound,
+                                         to: r.upperBound)
+        let lo = path.index(basenameStart, offsetBy: preLen)
+        let hi = path.index(lo, offsetBy: matchLen)
+        return lo..<hi
+    }
+
     /// True if this entry should be emitted given its basename and
     /// relative path. The caller passes both because fd matches the
     /// basename by default and the full path under `--full-path`.

@@ -40,5 +40,13 @@ public struct PrinterOptions: Sendable {
     /// specific spec by setting this to a parsed `LsColors`.
     public var lsColors: LsColors? = nil
 
+    /// SGR code applied to the substring of each path that the
+    /// pattern matched. Mirrors fd's default of bold red (`01;31`).
+    /// Set to `nil` to disable match highlighting entirely while
+    /// keeping the rest of the LS_COLORS palette. The empty-pattern
+    /// case (`fd` with no PATTERN) never produces a highlight
+    /// regardless of this setting.
+    public var matchHighlight: String? = "01;31"
+
     public init() {}
 }
