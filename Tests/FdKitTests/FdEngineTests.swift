@@ -231,6 +231,64 @@ import Testing
         #expect(!cleaned.contains("b.md"))
     }
 
+    // MARK: - LS_COLORS plumbing
+
+    /// A pinned LsColors spec routes through the printer end-to-end.
+    /// Picks a couple of unmistakable codes so the assertion is on
+    /// exact byte sequences.
+    @Test func lsColorsPaintsByExtensionAndType() async throws {
+        let root = try makeTree([
+            "a.swift": "x",
+            "sub/b.md": "y",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var cfg = Fd.Configuration()
+        cfg.printer.color = true
+        cfg.printer.lsColors = LsColors(spec: "di=01;34:*.swift=38;5;202")
+        let stdoutSink = OutputSink()
+        let stderrSink = OutputSink()
+        _ = try await Fd.run(
+            configuration: cfg,
+            searchPaths: [Walker.Root(url: root, display: root.path)],
+            stdout: stdoutSink,
+            stderr: stderrSink)
+        stdoutSink.finish()
+        let raw = await stdoutSink.readAllString()
+        // .swift gets the 256-color code.
+        #expect(raw.contains("\u{1B}[38;5;202m") && raw.contains("a.swift"))
+        // The subdirectory gets the di code.
+        #expect(raw.contains("\u{1B}[01;34m") && raw.contains("sub/"))
+        // .md falls through with no styling and isn't escaped.
+        let mdLine = raw.split(separator: "\n").first { $0.contains("b.md") }
+        if let mdLine {
+            #expect(!String(mdLine).contains("\u{1B}["),
+                    "unexpected ANSI escape on .md line: \(mdLine)")
+        }
+    }
+
+    @Test func lsColorsDisabledWhenColorOff() async throws {
+        let root = try makeTree([
+            "a.swift": "x",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var cfg = Fd.Configuration()
+        cfg.printer.color = false
+        cfg.printer.lsColors = LsColors(spec: "*.swift=01;31")
+        let stdoutSink = OutputSink()
+        let stderrSink = OutputSink()
+        _ = try await Fd.run(
+            configuration: cfg,
+            searchPaths: [Walker.Root(url: root, display: root.path)],
+            stdout: stdoutSink,
+            stderr: stderrSink)
+        stdoutSink.finish()
+        let raw = await stdoutSink.readAllString()
+        #expect(!raw.contains("\u{1B}["),
+                "ANSI escape leaked with color=false: \(raw)")
+    }
+
     // MARK: - Helpers
 
     private func makeTree(_ tree: [String: String]) throws -> URL {

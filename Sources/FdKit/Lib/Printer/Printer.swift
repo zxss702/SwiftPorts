@@ -7,9 +7,19 @@ import ShellKit
 struct Printer {
 
     let options: PrinterOptions
+    private let lsColors: LsColors
+
+    init(options: PrinterOptions) {
+        self.options = options
+        // Resolve LS_COLORS once at construction. Calling
+        // `LsColors.fromEnvironment` per entry would re-parse the env
+        // var on every match — wasteful when a run produces thousands
+        // of entries.
+        self.lsColors = options.lsColors ?? LsColors.fromEnvironment()
+    }
 
     /// Render and emit `entry`. The metadata snapshot drives
-    /// directory-slash decoration and `--type executable` coloring.
+    /// directory-slash decoration and the LS_COLORS-driven palette.
     func emit(_ entry: Walker.Entry,
               metadata: EntryFilter.Metadata,
               to stdout: OutputSink) {
@@ -26,7 +36,9 @@ struct Printer {
         }
 
         if options.color {
-            path = colorize(path: path, metadata: metadata)
+            path = colorize(path: path,
+                            basename: entry.url.lastPathComponent,
+                            metadata: metadata)
         }
 
         let terminator: Character = options.print0 ? "\0" : "\n"
@@ -47,24 +59,23 @@ struct Printer {
         return p
     }
 
-    /// Crude color decoration. fd reads `LS_COLORS` for fine-grained
-    /// styling; we apply a small fixed palette (directories blue,
-    /// symlinks cyan, executables green) so colored output looks
-    /// recognizable without dragging an LS_COLORS parser in. Honors
-    /// the same kill switches as ripgrep (`NO_COLOR` is checked at
-    /// the CLI layer).
+    /// Apply the resolved LS_COLORS-style palette to the path. Returns
+    /// the input unchanged when no rule applies — matches what real
+    /// fd / ls do for entries that fall through to the default style.
+    /// Honors the same kill switches as ripgrep (`NO_COLOR` is checked
+    /// at the CLI layer; this method only runs when `options.color`
+    /// is already true).
     private func colorize(path: String,
+                          basename: String,
                           metadata: EntryFilter.Metadata) -> String {
-        let reset = "\u{1B}[0m"
-        if metadata.isDirectory {
-            return "\u{1B}[1;34m" + path + reset
-        }
-        if metadata.isSymlink {
-            return "\u{1B}[1;36m" + path + reset
-        }
-        if let perms = metadata.posixPermissions, (perms & 0o111) != 0 {
-            return "\u{1B}[1;32m" + path + reset
-        }
-        return path
+        guard let code = lsColors.code(
+            forBasename: basename,
+            isDirectory: metadata.isDirectory,
+            isSymlink: metadata.isSymlink,
+            isRegularFile: metadata.isRegularFile,
+            posixPermissions: metadata.posixPermissions,
+            fileType: metadata.fileType)
+        else { return path }
+        return lsColors.wrap(path, with: code)
     }
 }

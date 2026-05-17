@@ -34,5 +34,11 @@ public struct PrinterOptions: Sendable {
     /// stdout is a TTY so users can tell entries apart at a glance.
     public var directorySlash: Bool = true
 
+    /// `LS_COLORS`-style style table. When `nil`, the printer reads
+    /// `LS_COLORS` (or `DIRCOLORS`, or its built-in default) the first
+    /// time it needs to color an entry. Tests / embedders can pin a
+    /// specific spec by setting this to a parsed `LsColors`.
+    public var lsColors: LsColors? = nil
+
     public init() {}
 }
