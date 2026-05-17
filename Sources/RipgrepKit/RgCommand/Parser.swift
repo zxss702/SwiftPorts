@@ -252,7 +252,13 @@ enum Parser {
                     walker.respectParentIgnore = false; i += 1; continue
                 case "no-ignore-global":
                     walker.respectGlobalIgnore = false; i += 1; continue
-                case "no-ignore-files", "no-require-git", "no-ignore-messages":
+                case "no-require-git":
+                    walker.requireGit = false; i += 1; continue
+                case "ignore-file-case-insensitive":
+                    walker.ignoreCaseInsensitive = true; i += 1; continue
+                case "no-ignore-file-case-insensitive":
+                    walker.ignoreCaseInsensitive = false; i += 1; continue
+                case "no-ignore-files", "no-ignore-messages":
                     // Accepted for parity; not yet wired.
                     i += 1; continue
                 case "ignore-file":
@@ -701,7 +707,10 @@ OPTIONS
       --no-ignore-dot       Don't read .ignore / .rgignore.
       --no-ignore-parent    Don't walk parent dirs for ignore files.
       --no-ignore-global    Don't read the user's global git ignore.
+      --no-require-git      Apply .gitignore even outside a git repo.
       --ignore-file=PATH    Add PATH as an extra ignore file.
+      --ignore-file-case-insensitive
+                            Match ignore patterns case-insensitively.
       --one-file-system     Stay on the starting filesystem.
 
   -n, --line-number         Show 1-indexed line numbers.

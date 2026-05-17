@@ -69,14 +69,23 @@ public struct WalkerOptions: Sendable {
     /// Additional ignore files to load at the root (`--ignore-file`).
     public var extraIgnoreFiles: [URL] = []
 
+    /// Match ignore-file patterns case-insensitively. Applies to
+    /// `.gitignore` / `.ignore` / `.rgignore` / global / parent /
+    /// `--ignore-file` — i.e. every gitignore-style source we load.
+    /// Toggled by `--ignore-file-case-insensitive`.
+    public var ignoreCaseInsensitive: Bool = false
+
     /// Skip directories that lie on a different filesystem
     /// (`--one-file-system`).
     public var oneFileSystem: Bool = false
 
-    /// Treat any path passed explicitly on the command line as a
-    /// "must search" override that bypasses gitignore. Mirrors
-    /// upstream's behaviour. Always true.
-    public var explicitPathsOverrideFilters: Bool = true
+    /// Gate VCS ignore handling (`.gitignore` and `.git/info/exclude`)
+    /// on the search root being inside a git/jj repository. Mirrors
+    /// upstream ripgrep's `require_git: true` default — without an
+    /// enclosing repo, a stray `.gitignore` in a non-repo directory
+    /// shouldn't silently filter results. Disabled by
+    /// `--no-require-git`, which makes VCS ignores apply universally.
+    public var requireGit: Bool = true
 
     public init() {}
 }
