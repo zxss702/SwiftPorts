@@ -187,12 +187,14 @@ jobs:
   # Library-only build: the executable targets (`zip`, `unzip`, `gh`,
   # `glab`, `git`) and XCTest test bundles still trip the action's
   # standalone-Bionic-ELF link path with `undefined symbol: __libc_init`
-  # even after the libgit2 + ZIPFoundation Bionic fixes landed. The
-  # realistic Android consumer is SwiftBash embedding the libraries,
-  # so cover compile of every library target individually and skip
-  # the link/emulator phase. Re-enable the executable + test pass
-  # once skiptools/swift-android-action ships an
-  # executable-friendly link recipe.
+  # even after the libgit2 Bionic fixes landed (the ZIPFoundation arm
+  # of the same set of fixes went away when the package moved onto
+  # libarchive via `marcprux/swift-archive`). The realistic Android
+  # consumer is SwiftBash embedding the libraries, so cover compile of
+  # every library target individually and skip the link/emulator phase.
+  # Re-enable the executable + test pass once
+  # `skiptools/swift-android-action` ships an executable-friendly link
+  # recipe.
   build-android:
     runs-on: ubuntu-latest
     timeout-minutes: 30

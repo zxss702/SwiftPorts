@@ -80,8 +80,9 @@ matrix.
 
 `.github/workflows/swift.yml` → `build-windows`:
 
-- Installs `zlib` via vcpkg (`x64-windows-static-md`) for ZIPFoundation's
-  deflate path.
+- Installs `zlib` via vcpkg (`x64-windows-static-md`) for `GzipKit`'s
+  inflate/deflate path and for libarchive's gzip filter (via
+  `marcprux/swift-archive`).
 - `swift build` with explicit `--target` flags for the library list above.
 - No `continue-on-error` — failures actually break CI.
 - No `swift test` step — most test targets pull in libgit2-using code via

@@ -33,47 +33,19 @@ issue (see below).
 
 ## Required fixes — already landed
 
-Three classes of source-level breakage had to be fixed before anything
-compiled. They are all in place on `main`:
+Two classes of source-level breakage had to be fixed before anything
+compiled. They are all in place on `main`. (A third class — Bionic libc
+imports inside ZIPFoundation — was retired when the package moved off
+`weichsel/ZIPFoundation` onto libarchive via `marcprux/swift-archive`;
+libarchive already handles Bionic correctly.)
 
-### 1. ZIPFoundation — Bionic libc imports
-
-`import Foundation` does not transitively re-export Bionic the way it
-re-exports Darwin / Glibc / ucrt. Files that used raw libc symbols
-(`stat`, `lstat`, `S_IFMT`/`S_IFREG`/`S_IFDIR`/`S_IFLNK`, `mode_t`,
-`fopen`/`fclose`/`fread`/`fwrite`/`fseeko`/`ftello`, `fileno`,
-`ftruncate`, `time_t`/`gmtime`/`timegm`, `timeval`/`timespec`,
-`fpos_t`, `funopen`, `FILE`, `errno`) failed with "cannot find … in
-scope".
-
-Tracked in [weichsel/ZIPFoundation#380](https://github.com/weichsel/ZIPFoundation/pull/380).
-While that PR is open, `Package.swift` pins
-[`odrobnik/ZIPFoundation@fix/android-windows-imports`](https://github.com/odrobnik/ZIPFoundation/tree/fix/android-windows-imports),
-which:
-
-- Adds `canImport(Android)` / `canImport(Bionic)` shims to every source
-  file that touches raw libc.
-- Wraps `setSymlinkPermissions` / `setSymlinkModificationDate` in their
-  existing Apple-only `#if`. Bionic ships neither `lchmod` nor a usable
-  `lutimes` for symlinks; Linux's `lchmod` is a kernel no-op anyway, so
-  the call sites are already Apple-gated — only the definitions weren't.
-- Guards the `fwrite(buffer.baseAddress, …)` empty-buffer case for
-  Bionic's stricter non-optional `UnsafeRawPointer` parameter.
-- Routes Android's `MemoryFile` through `fopencookie` instead of
-  `funopen`. Bionic's `funopen` is `__INTRODUCED_IN(28)` and trips
-  `undefined symbol: funopen` on lower API targets; `fopencookie` is
-  available since API 23.
-
-Once upstream merges, flip the dep back to `weichsel/ZIPFoundation` and
-delete the fork branch.
-
-### 2. ForgeKit — `isatty` import
+### 1. ForgeKit — `isatty` import
 
 [`Sources/ForgeKit/IO/TTY.swift`](../Sources/ForgeKit/IO/TTY.swift) calls
 `isatty(2)`. The same `canImport(Android)` / `canImport(Bionic)` block
 already used for Glibc/Musl was missing. Fixed by extending the shim.
 
-### 3. SwiftGit — `GIT_REBASE_NO_OPERATION` macro
+### 2. SwiftGit — `GIT_REBASE_NO_OPERATION` macro
 
 `libgit2`'s `git2/rebase.h` `#define`s `GIT_REBASE_NO_OPERATION SIZE_MAX`.
 The Swift macro importer surfaces it on Apple/Linux but drops it on the
