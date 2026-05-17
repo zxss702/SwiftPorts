@@ -87,15 +87,48 @@ extension GitClient {
         return matches
     }
 
-    /// `fnmatch` against either the full repo-relative path or the
-    /// basename so the user can write `*.swift` and have it hit
-    /// `src/foo.swift` without spelling the leading globs out.
+    /// Glob-match the candidate against each filter, testing either
+    /// the full repo-relative path or just the basename so the user
+    /// can write `*.swift` and have it hit `src/foo.swift` without
+    /// spelling the leading globs out. Pure Swift — no `fnmatch(3)`
+    /// shellout — so it works on Windows where libc doesn't ship one.
+    /// Semantics match `fnmatch(pattern, name, 0)`: `*` matches any
+    /// run of characters (including `/`), `?` matches one.
     private static func path(_ candidate: String, matchesAny filters: [String]) -> Bool {
         let basename = (candidate as NSString).lastPathComponent
         for pattern in filters {
-            if fnmatch(pattern, candidate, 0) == 0 { return true }
-            if fnmatch(pattern, basename, 0) == 0 { return true }
+            if glob(pattern: pattern, name: candidate) { return true }
+            if glob(pattern: pattern, name: basename)  { return true }
         }
         return false
+    }
+
+    /// Recursive `*`/`?` glob matcher with memoisation. Same shape as
+    /// `fnmatch(pattern, name, 0)` — `*` matches any sequence, `?`
+    /// matches any single character, everything else is literal.
+    /// Bracket expressions are not supported (real `git grep` doesn't
+    /// need them for the pathspecs we accept).
+    static func glob(pattern: String, name: String) -> Bool {
+        let p = Array(pattern)
+        let n = Array(name)
+        var memo: [[Bool?]] = Array(
+            repeating: Array(repeating: nil, count: n.count + 1),
+            count: p.count + 1)
+        func match(_ i: Int, _ j: Int) -> Bool {
+            if let cached = memo[i][j] { return cached }
+            let result: Bool
+            if i == p.count {
+                result = j == n.count
+            } else if p[i] == "*" {
+                result = match(i + 1, j) || (j < n.count && match(i, j + 1))
+            } else if j < n.count && (p[i] == "?" || p[i] == n[j]) {
+                result = match(i + 1, j + 1)
+            } else {
+                result = false
+            }
+            memo[i][j] = result
+            return result
+        }
+        return match(0, 0)
     }
 }
