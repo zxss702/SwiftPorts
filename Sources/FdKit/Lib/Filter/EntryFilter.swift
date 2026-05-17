@@ -165,9 +165,16 @@ struct EntryFilter {
     }
 
     /// FileAttributeType doesn't model FIFO explicitly on every SDK
-    /// version. Fall back to a `stat(2)` probe so `--type pipe`
-    /// actually finds named pipes.
+    /// version. On POSIX hosts fall back to a `stat(2)` probe so
+    /// `--type pipe` actually finds named pipes. Windows has no
+    /// concept of FIFOs in the POSIX sense and the toolchain doesn't
+    /// expose `lstat` / `S_IFMT`, so we short-circuit to `false` —
+    /// `--type pipe` on Windows produces no hits, which matches what
+    /// real fd does there.
     private func isPipe(metadata: Metadata) -> Bool {
+        #if os(Windows)
+        return false
+        #else
         var sb = stat()
         let result = metadata.url.withUnsafeFileSystemRepresentation { rep -> Int32 in
             guard let rep else { return -1 }
@@ -175,5 +182,6 @@ struct EntryFilter {
         }
         guard result == 0 else { return false }
         return (sb.st_mode & S_IFMT) == S_IFIFO
+        #endif
     }
 }
