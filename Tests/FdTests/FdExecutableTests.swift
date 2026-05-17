@@ -331,14 +331,21 @@ import Testing
             "a.txt": "x",
         ])
         defer { try? FileManager.default.removeItem(at: r.root) }
-        // Every line should start with `/` (absolute).
+        // Every line should be absolute. On POSIX that means a leading
+        // `/`; on Windows the toolchain emits `C:/…`-style paths.
+        // Cross-platform: assert each path contains the absolute temp
+        // root so we know `-a` actually emitted a rooted path rather
+        // than something relative to cwd.
         let lines = r.stdout
             .split(separator: "\n", omittingEmptySubsequences: true)
             .map(String.init)
         #expect(!lines.isEmpty)
+        let rootStandardized = r.root.standardizedFileURL.path
         for line in lines {
-            #expect(line.hasPrefix("/"),
-                    "non-absolute line: \(line)")
+            #expect(line.contains(rootStandardized),
+                    "line does not contain the absolute root \(rootStandardized): \(line)")
+            #expect(!line.hasPrefix("./"),
+                    "absolute-path line has stale ./ prefix: \(line)")
         }
     }
 
