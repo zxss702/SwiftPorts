@@ -63,7 +63,7 @@ without ever running `Process`.
 | Library         | Binary                       | What it ports |
 |-----------------|------------------------------|----------------|
 | `ForgeKit`      | —                            | Host-agnostic CLI plumbing: ANSI/TTY, GitClient (Process + No-op), SecretStore (Keychain + InMemory). Shared by `gh` and `glab`. |
-| `ZipKit`        | —                            | PKZIP archive operations on top of [`weichsel/ZIPFoundation`](https://github.com/weichsel/ZIPFoundation). Shared by `zip` / `unzip` / `gh`. |
+| `ZipKit`        | —                            | PKZIP archive operations on libarchive via [`marcprux/swift-archive`](https://github.com/marcprux/swift-archive). Shared by `zip` / `unzip` / `gh` (release-asset extraction). |
 | `ZipCommand`    | `zip`                        | Info-ZIP `zip(1)` — create archives. |
 | `UnzipCommand`  | `unzip`                      | Info-ZIP `unzip(1)` — extract / list / test / pipe. |
 | `TarKit`        | —                            | POSIX tar with libarchive backend; auto-detects gzip / bzip2 / xz / zstd / lz4 filters. |
@@ -80,6 +80,8 @@ without ever running `Process`.
 | `Lz4Command`    | `lz4` / `unlz4` / `lz4cat`   | The three lz4 personalities. |
 | `JqKit`         | —                            | Pure-Swift jq engine (parser + evaluator + builtins) — no system C dep, runs on every supported platform. Public `Jq.eval` / `Jq.evalString` facade. |
 | `JqCommand`     | `jq`                         | `jq(1)` — the standard flag set (`-r` / `-c` / `-s` / `-e` / `--arg` / `--argjson` / `--slurpfile` / …). |
+| `GlamKit`       | —                            | Markdown → ANSI renderer compatible with [`charmbracelet/glamour`](https://github.com/charmbracelet/glamour)'s stylesheet model. Built on `swift-markdown`. Honors `GLAMOUR_STYLE`, terminal capability (`TERM` / `COLORTERM` / `NO_COLOR`), and emits OSC 8 hyperlinks when the terminal supports them. Used by `gh` / `glab` to render PR / issue / release bodies. |
+| `GlamCommand`   | `glam`                       | `glamour(1)`-style CLI for piped Markdown — `glam README.md` or `cat README.md \| glam`. |
 | `GitHub`        | —                            | GitHub SDK: REST + GraphQL clients, OAuth device flow, Codable models. No ArgumentParser dep. |
 | `GhCommand`     | `gh`                         | The `gh` subcommand tree. `gh api` supports `--jq <filter>` (in-process via JqKit) and the GraphQL `{query, variables, operationName}` envelope. |
 | `GitLab`        | —                            | GitLab SDK: REST client (`X-Next-Page` pagination, Bearer auth, `gitlab.com` and self-hosted), Codable models, nested-subgroup-aware `RepositoryReference`. |
@@ -129,6 +131,11 @@ without ever running `Process`.
   Library form (`JqKit`) is what powers `gh api --jq` and
   `glab api --jq` in-process — sandboxed iOS apps can finally filter
   API responses without spawning anything.
+- **`glam`** — Markdown → ANSI renderer matching `charmbracelet/glamour`'s
+  stylesheet model (CommonMark + GFM via `swift-markdown`). Honors
+  `GLAMOUR_STYLE`, `NO_COLOR`, and terminal capability detection;
+  emits OSC 8 hyperlinks when the terminal supports them. The same
+  engine renders PR / issue / release bodies inside `gh` and `glab`.
 - **`rg`** — ripgrep-compatible recursive search with a gitignore-aware
   walker, regex / fixed-string / smart-case modes, type registry, JSON
   Lines (`--json`), and the daily-driver flag set. Engine is reusable
@@ -154,6 +161,7 @@ swift run tar  -xzf release.tar.gz         # tar with gzip filter
 swift run jq   '.items[] | .name' < data.json
 swift run rg   'TODO' src/                # ripgrep-compatible search
 swift run fd   --glob '*.swift' src/      # fd-compatible file finder
+swift run glam README.md                  # Markdown → ANSI in the terminal
 ```
 
 `swift build -c release` produces optimized binaries under
@@ -163,7 +171,7 @@ swift run fd   --glob '*.swift' src/      # fd-compatible file finder
 ## Embedding in your app
 
 The SDK libraries (`GitHub`, `GitLab`, `ZipKit`, `TarKit`, `GzipKit`,
-`Bzip2Kit`, `XzKit`, `ZstdKit`, `Lz4Kit`, `JqKit`, `SwiftGit`,
+`Bzip2Kit`, `XzKit`, `ZstdKit`, `Lz4Kit`, `JqKit`, `GlamKit`, `SwiftGit`,
 `RipgrepKit`, `FdKit`, `ForgeKit`) have **zero `ArgumentParser` dependency** — they're
 plain Swift APIs. Use them directly when you don't need a CLI:
 
