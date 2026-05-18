@@ -58,6 +58,12 @@ struct Log: AsyncParsableCommand {
         var pulledStat = stat
         var pulledPatch = patch
         var pulledFormat = format
+        // Entry.swift's argv preprocessor converts real-git's `-<n>`
+        // shorthand into `-n <n>` before ArgumentParser sees it. That
+        // path doesn't fire when `git` is invoked as a SwiftBash
+        // builtin (the bridge calls `parseAsRoot` directly), so the
+        // shorthand also has to be recognised here.
+        var pulledMaxCount = maxCount
         var i = 0
         while i < rest.count {
             let tok = rest[i]
@@ -72,6 +78,13 @@ struct Log: AsyncParsableCommand {
                 pulledFormat = rest[i + 1]
                 i += 2; continue
             }
+            if tok.count > 1, tok.hasPrefix("-"),
+               tok.dropFirst().allSatisfy(\.isNumber),
+               let count = Int(tok.dropFirst()) {
+                pulledMaxCount = count
+                i += 1
+                continue
+            }
             positionals.append(tok)
             i += 1
         }
@@ -79,11 +92,7 @@ struct Log: AsyncParsableCommand {
         let useStat = pulledStat
         let usePatch = pulledPatch
         let useFormat = pulledFormat
-
-        // Entry.swift's argv preprocessor converts real-git's `-<n>`
-        // shorthand into `-n <n>` before ArgumentParser sees it, so
-        // `maxCount` already carries the value.
-        let limit = maxCount
+        let limit = pulledMaxCount
 
         let (refTokens, paths) = Self.splitOnDoubleDash(positionals)
         let (starts, excludes) = try Self.expandRefs(refTokens)

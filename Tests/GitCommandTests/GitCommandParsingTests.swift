@@ -605,6 +605,19 @@ struct GitCommandParsingTests {
         #expect(cmd.maxCount == 3)
     }
 
+    @Test("log: bare -1 captured as passthrough (Entry.swift would rewrite)")
+    func logDashOneLandsInRest() throws {
+        // When `git log -1` is invoked as a standalone binary, the
+        // Entry preprocessor rewrites `-1` → `-n 1` before parsing.
+        // When it's invoked as a SwiftBash builtin (parseAsRoot is
+        // called directly), `-1` is captured into `rest` for `run()`
+        // to re-interpret. Verify the latter shape so the run-time
+        // pull-out logic in Log.run has something to find.
+        let cmd = try parse(["log", "--oneline", "-1"], as: Log.self)
+        #expect(cmd.oneline == true)
+        #expect(cmd.rest == ["-1"])
+    }
+
     @Test("log: --format passes through")
     func logFormatParse() throws {
         let cmd = try parse(["log", "--format", "%H%n%s"], as: Log.self)
