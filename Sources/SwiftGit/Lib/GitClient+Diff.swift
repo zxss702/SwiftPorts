@@ -19,7 +19,7 @@ public enum DiffFormat: Sendable {
     case nameStatus
 }
 
-/// What to compare. Mirrors the four common `git diff` invocations.
+/// What to compare. Mirrors the common `git diff` invocations.
 public enum DiffTarget: Sendable {
     /// Working tree vs index (`git diff`).
     case workdirVsIndex
@@ -29,6 +29,10 @@ public enum DiffTarget: Sendable {
     case workdirVsCommit(String)
     /// Two commit-ishes (`git diff <a> <b>`).
     case commitVsCommit(String, String)
+    /// Empty tree vs a commit-ish — every entry in the commit appears
+    /// as an addition. Used to render `git log --stat` / `git show`
+    /// for the root commit, which has no parent to diff against.
+    case emptyVsCommit(String)
 }
 
 extension GitClient {
@@ -216,6 +220,15 @@ extension GitClient {
             let newTree = try resolveTree(spec: b, repo: repo)
             defer { git_tree_free(newTree) }
             try check(git_diff_tree_to_tree(&diff, repo, oldTree, newTree, &opts))
+
+        case .emptyVsCommit(let spec):
+            // libgit2 treats a NULL old-tree as the empty tree, so every
+            // file in `newTree` shows up as an addition — exactly what
+            // real git renders for `log --stat` / `show` on the root
+            // commit.
+            let newTree = try resolveTree(spec: spec, repo: repo)
+            defer { git_tree_free(newTree) }
+            try check(git_diff_tree_to_tree(&diff, repo, nil, newTree, &opts))
         }
         return diff
     }

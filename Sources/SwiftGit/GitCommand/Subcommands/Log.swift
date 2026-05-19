@@ -96,8 +96,8 @@ struct Log: AsyncParsableCommand {
     }
 
     /// Build a `--stat` or `-p` block for one commit. Diff against the
-    /// first parent (empty tree for the root commit) so the output
-    /// matches what `git log --stat` / `-p` produces.
+    /// first parent — or against the empty tree for the root commit,
+    /// which real git renders as every file being added.
     private func additionalSection(
         client: SwiftGit.GitClient, entry: LogEntry,
         stat: Bool, patch: Bool
@@ -106,14 +106,7 @@ struct Log: AsyncParsableCommand {
         if let parent = entry.parentSHAs.first {
             target = .commitVsCommit(parent, entry.sha)
         } else {
-            // Root commit — diff against empty.
-            target = .commitVsCommit(entry.sha, entry.sha)  // produces nothing
-            // Better: diff entry against itself returns empty; instead
-            // fall back to diff vs empty by using a tree-only path.
-            // libgit2's diff_tree_to_tree(NULL, newTree, ...) is what
-            // we'd want; the simplest workaround for root commits is
-            // to just skip the section.
-            return ""
+            target = .emptyVsCommit(entry.sha)
         }
         if patch {
             return try await client.diff(target, format: .patch)

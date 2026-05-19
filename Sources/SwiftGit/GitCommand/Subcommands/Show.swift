@@ -55,14 +55,19 @@ struct Show: AsyncParsableCommand {
         guard let entry = entries.first else { return }
         stdout.write(Data(entry.defaultFormat().utf8))
 
-        // Diff: against first parent, or against empty for root commits.
+        // Diff: against first parent, or against the empty tree for
+        // the root commit (every file appears as an addition, matching
+        // real git's `show` output).
+        let target: DiffTarget
         if let parent = entry.parentSHAs.first {
-            let diff = try await client.diff(
-                .commitVsCommit(parent, entry.sha), format: .patch)
-            if !diff.isEmpty {
-                stdout.write(Data("\n".utf8))
-                stdout.write(Data(diff.utf8))
-            }
+            target = .commitVsCommit(parent, entry.sha)
+        } else {
+            target = .emptyVsCommit(entry.sha)
+        }
+        let diff = try await client.diff(target, format: .patch)
+        if !diff.isEmpty {
+            stdout.write(Data("\n".utf8))
+            stdout.write(Data(diff.utf8))
         }
     }
 }

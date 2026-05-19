@@ -142,6 +142,32 @@ struct GitClientDiffTests {
         #expect(out.contains("+v2"))
     }
 
+    @Test("empty-vs-commit renders the root commit as additions (patch)")
+    func emptyVsCommitPatch() async throws {
+        let dir = try makeRepo()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let out = try await GitClient(workingDirectory: dir)
+            .diff(.emptyVsCommit("HEAD"))
+        #expect(out.contains("diff --git a/a.txt b/a.txt"))
+        #expect(out.contains("new file mode"))
+        #expect(out.contains("+line1"))
+        #expect(out.contains("+line2"))
+        #expect(out.contains("+line3"))
+    }
+
+    @Test("empty-vs-commit --stat produces per-file bar plus summary (root commit)")
+    func emptyVsCommitStat() async throws {
+        let dir = try makeRepo()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let out = try await GitClient(workingDirectory: dir)
+            .diff(.emptyVsCommit("HEAD"), format: .stat)
+        #expect(out.contains("a.txt"))
+        #expect(out.contains("file changed"))
+        #expect(out.contains("insertion"))
+    }
+
     @Test("contextLines = 0 produces zero-context unified diff")
     func contextLinesZero() async throws {
         let dir = try makeRepo()
