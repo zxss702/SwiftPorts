@@ -136,4 +136,53 @@ import Testing
         #expect(output.contains("--  -----"))
         #expect(output.contains("1   alice"))
     }
+
+    @Test func tabsMode() {
+        let formatter = ResultFormatter(mode: .tabs, showHeader: true)
+        #expect(formatter.render(sample) == "id\tname\n1\talice\n2\t\n")
+    }
+
+    @Test func asciiMode() {
+        let formatter = ResultFormatter(mode: .ascii)
+        #expect(formatter.render(sample) == "1\u{1F}alice\u{1E}2\u{1F}\u{1E}")
+    }
+
+    @Test func htmlMode() {
+        let formatter = ResultFormatter(mode: .html, showHeader: true)
+        #expect(formatter.render(sample) == "<TR><TH>id</TH>\n<TH>name</TH>\n</TR>\n<TR><TD>1</TD>\n<TD>alice</TD>\n</TR>\n<TR><TD>2</TD>\n<TD></TD>\n</TR>\n")
+    }
+
+    @Test func markdownMode() {
+        let formatter = ResultFormatter(mode: .markdown, showHeader: true)
+        #expect(formatter.render(sample) == "| id | name  |\n|----|-------|\n| 1  | alice |\n| 2  |       |\n")
+    }
+
+    @Test func tableMode() {
+        let formatter = ResultFormatter(mode: .table, showHeader: true)
+        #expect(formatter.render(sample) == "+----+-------+\n| id | name  |\n+----+-------+\n| 1  | alice |\n| 2  |       |\n+----+-------+\n")
+    }
+
+    @Test func boxMode() {
+        let formatter = ResultFormatter(mode: .box, showHeader: true)
+        #expect(formatter.render(sample) == "┌────┬───────┐\n│ id │ name  │\n├────┼───────┤\n│ 1  │ alice │\n│ 2  │       │\n└────┴───────┘\n")
+    }
+
+    @Test func quoteMode() {
+        let formatter = ResultFormatter(mode: .quote, showHeader: true)
+        #expect(formatter.render(sample) == "'id','name'\n1,'alice'\n2,NULL\n")
+    }
+
+    @Test func insertMode() {
+        var formatter = ResultFormatter(mode: .insert)
+        #expect(formatter.render(sample) == "INSERT INTO \"table\" VALUES(1,'alice');\nINSERT INTO \"table\" VALUES(2,NULL);\n")
+        formatter.insertTable = "t"
+        #expect(formatter.render(sample) == "INSERT INTO t VALUES(1,'alice');\nINSERT INTO t VALUES(2,NULL);\n")
+    }
+
+    @Test func sqlLiteralSerialization() {
+        #expect(SQLiteValue.text("a'b").sqlLiteral == "'a''b'")
+        #expect(SQLiteValue.blob(Data([0x00, 0xff])).sqlLiteral == "X'00ff'")
+        #expect(SQLiteValue.null.sqlLiteral == "NULL")
+        #expect(SQLiteValue.integer(42).sqlLiteral == "42")
+    }
 }

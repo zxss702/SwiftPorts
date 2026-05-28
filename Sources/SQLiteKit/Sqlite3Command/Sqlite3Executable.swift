@@ -56,10 +56,17 @@ public enum Sqlite3Executable {
             return 1
         }
 
+        // The -markdown/-table/-box flags turn headers on unless the user
+        // pinned them; the -column flag notably does not (matching sqlite3).
+        var showHeader = options.showHeader
+        if !options.headerExplicit, [.markdown, .table, .box].contains(options.mode) {
+            showHeader = true
+        }
+
         let session = Session(
             database: database,
             formatter: ResultFormatter(mode: options.mode,
-                                       showHeader: options.showHeader,
+                                       showHeader: showHeader,
                                        separator: options.separator,
                                        nullValue: options.nullValue),
             stdout: stdout,
@@ -274,15 +281,51 @@ final class Session {
                 if !names.isEmpty { out(Self.columnize(names)) }
             }
 
+        case ".dump":
+            introspect {
+                out("PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\n")
+                let only = args.first
+                let tableFilter = only.map { " AND name = '\(SQLiteDatabase.quote($0))'" } ?? ""
+                // Each table: its CREATE statement, then its rows as INSERTs.
+                let tables = try database.evaluate("""
+                    SELECT name, sql FROM sqlite_schema
+                    WHERE type='table' AND name NOT LIKE 'sqlite_%' AND sql NOT NULL\(tableFilter)
+                    ORDER BY rowid;
+                    """).first?.rows ?? []
+                for t in tables {
+                    guard case .text(let name) = t[0], case .text(let createSQL) = t[1] else { continue }
+                    out(createSQL + ";\n")
+                    let ident = name.replacingOccurrences(of: "\"", with: "\"\"")
+                    let rows = try database.evaluate("SELECT * FROM \"\(ident)\";").first?.rows ?? []
+                    for row in rows {
+                        out("INSERT INTO \(name) VALUES(\(row.map(\.sqlLiteral).joined(separator: ",")));\n")
+                    }
+                }
+                // Then views + triggers, then indexes last (sqlite3's order).
+                let objFilter = only.map { " AND tbl_name = '\(SQLiteDatabase.quote($0))'" } ?? ""
+                for types in ["'view','trigger'", "'index'"] {
+                    let sqls = try database.evaluate("""
+                        SELECT sql FROM sqlite_schema
+                        WHERE type IN (\(types)) AND sql NOT NULL\(objFilter) ORDER BY rowid;
+                        """).first?.rows.compactMap { $0.first?.cliText } ?? []
+                    for sql in sqls { out(sql + ";\n") }
+                }
+                out("COMMIT;\n")
+            }
+
         case ".mode":
             guard let raw = args.first, let mode = OutputMode(rawValue: raw) else {
                 err("Error: .mode expects one of: \(OutputMode.allCases.map(\.rawValue).joined(separator: ", "))\n")
                 return
             }
             formatter.mode = mode
-            // `.mode column` turns headers on unless the user already pinned
-            // them — matching sqlite3 (the `-column` flag does not).
-            if mode == .column && !headerExplicit { formatter.showHeader = true }
+            // `.mode insert [TABLE]` carries an optional destination table.
+            if mode == .insert { formatter.insertTable = args.count > 1 ? args[1] : nil }
+            // The column-family modes turn headers on unless the user already
+            // pinned them (matching sqlite3's `.mode` dot-command).
+            if !headerExplicit, [.column, .markdown, .table, .box].contains(mode) {
+                formatter.showHeader = true
+            }
 
         case ".headers", ".header":
             guard let value = args.first else {

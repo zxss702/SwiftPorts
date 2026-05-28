@@ -25,6 +25,19 @@ public extension SQLiteValue {
         case .blob(let b): return String(decoding: b, as: UTF8.self)
         }
     }
+
+    /// The value as a SQL literal — how sqlite3 renders it in `quote` /
+    /// `insert` modes and `.dump`. Strings are single-quoted (quotes
+    /// doubled), blobs become `X'…'`, NULL becomes `NULL`.
+    var sqlLiteral: String {
+        switch self {
+        case .null: return "NULL"
+        case .integer(let i): return String(i)
+        case .real(let d): return String(d)
+        case .text(let s): return "'" + s.replacingOccurrences(of: "'", with: "''") + "'"
+        case .blob(let b): return "X'" + b.map { String(format: "%02x", $0) }.joined() + "'"
+        }
+    }
 }
 
 /// One result row: parallel `columns` and `values` arrays.

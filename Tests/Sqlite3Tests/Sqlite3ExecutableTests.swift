@@ -62,6 +62,34 @@ import Testing
         #expect(r.stdout == "[{\"b\":\"\\u0000\\u00ff\"}]\n")
     }
 
+    @Test func boxFlag() async throws {
+        let r = try await run(["-box", ":memory:", "SELECT 1 AS a;"])
+        #expect(r.stdout == "┌───┐\n│ a │\n├───┤\n│ 1 │\n└───┘\n")
+    }
+
+    @Test func insertModeNamedTable() async throws {
+        let r = try await run([":memory:"],
+            input: "CREATE TABLE t(a);INSERT INTO t VALUES(1);\n.mode insert t\nSELECT * FROM t;\n")
+        #expect(r.stdout == "INSERT INTO t VALUES(1);\n")
+    }
+
+    @Test func dumpRoundTrip() async throws {
+        let r = try await run([":memory:"], input: """
+        CREATE TABLE t(id INTEGER, name TEXT);
+        INSERT INTO t VALUES (1,'alice'),(2,NULL);
+        .dump
+        """)
+        #expect(r.exit == 0)
+        #expect(r.stdout == """
+        PRAGMA foreign_keys=OFF;
+        BEGIN TRANSACTION;
+        CREATE TABLE t(id INTEGER, name TEXT);
+        INSERT INTO t VALUES(1,'alice');
+        INSERT INTO t VALUES(2,NULL);
+        COMMIT;
+        """ + "\n")
+    }
+
     @Test func dotModeAndHeadersFromStdin() async throws {
         let script = """
         .mode csv

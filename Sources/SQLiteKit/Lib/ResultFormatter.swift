@@ -3,6 +3,7 @@ import Foundation
 /// Output modes mirroring the `sqlite3` shell's `.mode` settings.
 public enum OutputMode: String, Sendable, CaseIterable {
     case list, csv, line, column, json
+    case tabs, ascii, html, markdown, table, box, quote, insert
 }
 
 /// Renders result sets the way the `sqlite3` shell does for each output
@@ -12,45 +13,53 @@ public struct ResultFormatter: Sendable {
     public var showHeader: Bool
     public var separator: String
     public var nullValue: String
+    /// Table name for `insert` mode; `nil` uses sqlite3's quoted default.
+    public var insertTable: String?
 
     public init(mode: OutputMode = .list,
                 showHeader: Bool = false,
                 separator: String = "|",
-                nullValue: String = "") {
+                nullValue: String = "",
+                insertTable: String? = nil) {
         self.mode = mode
         self.showHeader = showHeader
         self.separator = separator
         self.nullValue = nullValue
+        self.insertTable = insertTable
     }
 
     public func render(_ set: ResultSet) -> String {
         switch mode {
-        case .list: return renderList(set)
+        case .list: return separated(set, colSep: separator, rowSep: "\n")
+        case .tabs: return separated(set, colSep: "\t", rowSep: "\n")
+        case .ascii: return separated(set, colSep: "\u{1F}", rowSep: "\u{1E}")
         case .csv: return renderCSV(set)
         case .line: return renderLine(set)
         case .column: return renderColumn(set)
         case .json: return renderJSON(set)
+        case .html: return renderHTML(set)
+        case .markdown: return renderMarkdown(set)
+        case .table: return renderBordered(set, ascii: true)
+        case .box: return renderBordered(set, ascii: false)
+        case .quote: return renderQuote(set)
+        case .insert: return renderInsert(set)
         }
     }
 
     private func text(_ value: SQLiteValue) -> String { value.cliText ?? nullValue }
 
-    private func joinLines(_ lines: [String]) -> String {
-        lines.isEmpty ? "" : lines.joined(separator: "\n") + "\n"
+    // MARK: list / tabs / ascii (separator-delimited)
+
+    private func separated(_ set: ResultSet, colSep: String, rowSep: String) -> String {
+        var items: [String] = []
+        if showHeader { items.append(set.columns.joined(separator: colSep)) }
+        for row in set.rows { items.append(row.map(text).joined(separator: colSep)) }
+        return items.map { $0 + rowSep }.joined()
     }
 
-    private func renderList(_ set: ResultSet) -> String {
-        var lines: [String] = []
-        if showHeader { lines.append(set.columns.joined(separator: separator)) }
-        for row in set.rows {
-            lines.append(row.map(text).joined(separator: separator))
-        }
-        return joinLines(lines)
-    }
+    // MARK: csv
 
     private func renderCSV(_ set: ResultSet) -> String {
-        // SQLite's CSV mode terminates every row with CRLF, including the
-        // last one.
         var rows: [String] = []
         if showHeader { rows.append(set.columns.map(csvField).joined(separator: ",")) }
         for row in set.rows {
@@ -66,43 +75,97 @@ public struct ResultFormatter: Sendable {
         return s
     }
 
+    // MARK: line
+
     private func renderLine(_ set: ResultSet) -> String {
         guard !set.columns.isEmpty else { return "" }
         let width = set.columns.map(\.count).max() ?? 0
         var blocks: [String] = []
         for row in set.rows {
             let lines = set.columns.enumerated().map { (i, col) -> String in
-                let pad = String(repeating: " ", count: max(0, width - col.count))
-                return "\(pad)\(col) = \(text(row[i]))"
+                let leading = String(repeating: " ", count: max(0, width - col.count))
+                return "\(leading)\(col) = \(text(row[i]))"
             }
             blocks.append(lines.joined(separator: "\n"))
         }
         return blocks.isEmpty ? "" : blocks.joined(separator: "\n\n") + "\n"
     }
 
+    // MARK: column
+
     private func renderColumn(_ set: ResultSet) -> String {
-        let cells = set.rows.map { $0.map(text) }
-        var widths = set.columns.map(\.count)
-        for row in cells {
-            for (i, cell) in row.enumerated() where i < widths.count {
-                widths[i] = max(widths[i], cell.count)
-            }
-        }
-        func pad(_ s: String, _ w: Int) -> String {
-            s + String(repeating: " ", count: max(0, w - s.count))
-        }
+        let widths = columnWidths(set)
         var lines: [String] = []
         if showHeader {
             lines.append(zip(set.columns, widths).map { pad($0, $1) }.joined(separator: "  "))
             lines.append(widths.map { String(repeating: "-", count: $0) }.joined(separator: "  "))
         }
-        for row in cells {
-            lines.append(zip(row, widths).map { pad($0, $1) }.joined(separator: "  "))
+        for row in set.rows {
+            lines.append(zip(row.map(text), widths).map { pad($0, $1) }.joined(separator: "  "))
         }
-        // SQLite pads every cell (including the last column) to its width,
-        // so trailing spaces are preserved.
-        return joinLines(lines)
+        return lines.isEmpty ? "" : lines.joined(separator: "\n") + "\n"
     }
+
+    // MARK: markdown / table / box (column-width based)
+
+    private func renderMarkdown(_ set: ResultSet) -> String {
+        let widths = columnWidths(set)
+        func rowLine(_ cells: [String]) -> String {
+            "|" + zip(cells, widths).map { " \(pad($0, $1)) " }.joined(separator: "|") + "|"
+        }
+        var lines: [String] = []
+        if showHeader {
+            lines.append(rowLine(set.columns))
+            lines.append("|" + widths.map { String(repeating: "-", count: $0 + 2) }.joined(separator: "|") + "|")
+        }
+        for row in set.rows { lines.append(rowLine(row.map(text))) }
+        return lines.isEmpty ? "" : lines.joined(separator: "\n") + "\n"
+    }
+
+    private func renderBordered(_ set: ResultSet, ascii: Bool) -> String {
+        let widths = columnWidths(set)
+        let glyphs = ascii
+            ? (tl: "+", tm: "+", tr: "+", ml: "+", mm: "+", mr: "+",
+               bl: "+", bm: "+", br: "+", h: "-", v: "|")
+            : (tl: "┌", tm: "┬", tr: "┐", ml: "├", mm: "┼", mr: "┤",
+               bl: "└", bm: "┴", br: "┘", h: "─", v: "│")
+        func border(_ l: String, _ m: String, _ r: String) -> String {
+            l + widths.map { String(repeating: glyphs.h, count: $0 + 2) }.joined(separator: m) + r
+        }
+        func rowLine(_ cells: [String]) -> String {
+            glyphs.v + zip(cells, widths).map { " \(pad($0, $1)) " }.joined(separator: glyphs.v) + glyphs.v
+        }
+        var lines = [border(glyphs.tl, glyphs.tm, glyphs.tr)]
+        if showHeader {
+            lines.append(rowLine(set.columns))
+            lines.append(border(glyphs.ml, glyphs.mm, glyphs.mr))
+        }
+        for row in set.rows { lines.append(rowLine(row.map(text))) }
+        lines.append(border(glyphs.bl, glyphs.bm, glyphs.br))
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    // MARK: quote / insert (SQL literals)
+
+    private func renderQuote(_ set: ResultSet) -> String {
+        var items: [String] = []
+        if showHeader {
+            items.append(set.columns
+                .map { "'" + $0.replacingOccurrences(of: "'", with: "''") + "'" }
+                .joined(separator: ","))
+        }
+        for row in set.rows { items.append(row.map(\.sqlLiteral).joined(separator: ",")) }
+        return items.map { $0 + "\n" }.joined()
+    }
+
+    private func renderInsert(_ set: ResultSet) -> String {
+        let name = insertTable ?? "\"table\""
+        return set.rows
+            .map { "INSERT INTO \(name) VALUES(" + $0.map(\.sqlLiteral).joined(separator: ",") + ");\n" }
+            .joined()
+    }
+
+    // MARK: json
 
     private func renderJSON(_ set: ResultSet) -> String {
         let objects = set.rows.map { row -> String in
@@ -129,8 +192,7 @@ public struct ResultFormatter: Sendable {
         }
     }
 
-    /// SQLite renders BLOBs in JSON as a string of `\u00XX` escapes, one
-    /// per byte.
+    /// SQLite renders BLOBs in JSON as one \u00XX escape per byte.
     private func jsonBlob(_ bytes: Data) -> String {
         "\"" + bytes.map { String(format: "\\u%04x", $0) }.joined() + "\""
     }
@@ -153,5 +215,40 @@ public struct ResultFormatter: Sendable {
             }
         }
         return out + "\""
+    }
+
+    // MARK: html
+
+    private func renderHTML(_ set: ResultSet) -> String {
+        var out = ""
+        if showHeader {
+            out += "<TR>" + set.columns.map { "<TH>\(htmlEscape($0))</TH>" }.joined(separator: "\n") + "\n</TR>\n"
+        }
+        for row in set.rows {
+            out += "<TR>" + row.map { "<TD>\(htmlEscape(text($0)))</TD>" }.joined(separator: "\n") + "\n</TR>\n"
+        }
+        return out
+    }
+
+    private func htmlEscape(_ s: String) -> String {
+        s.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+    }
+
+    // MARK: shared width helpers
+
+    private func columnWidths(_ set: ResultSet) -> [Int] {
+        var widths = set.columns.map(\.count)
+        for row in set.rows {
+            for (i, cell) in row.map(text).enumerated() where i < widths.count {
+                widths[i] = max(widths[i], cell.count)
+            }
+        }
+        return widths
+    }
+
+    private func pad(_ s: String, _ width: Int) -> String {
+        s + String(repeating: " ", count: max(0, width - s.count))
     }
 }

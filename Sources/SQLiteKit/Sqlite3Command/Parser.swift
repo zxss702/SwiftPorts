@@ -47,6 +47,13 @@ enum Parser {
             case "-line": options.mode = .line
             case "-column": options.mode = .column
             case "-list": options.mode = .list
+            case "-tabs": options.mode = .tabs
+            case "-ascii": options.mode = .ascii
+            case "-html": options.mode = .html
+            case "-markdown": options.mode = .markdown
+            case "-table": options.mode = .table
+            case "-box": options.mode = .box
+            case "-quote": options.mode = .quote
             case "-header", "-headers": options.showHeader = true; options.headerExplicit = true
             case "-noheader", "-noheaders": options.showHeader = false; options.headerExplicit = true
             case "-readonly": options.readonly = true
@@ -90,9 +97,16 @@ enum Parser {
 
       -list              values separated by .separator (default)
       -csv               comma-separated values
+      -tabs              tab-separated values
+      -ascii             0x1F/0x1E separated values
       -column            left-aligned columns
+      -markdown          Markdown table
+      -table             ASCII-art table
+      -box               Unicode box-drawing table
       -line              one value per line
       -json              JSON array of objects
+      -html              HTML <TR>/<TD> rows
+      -quote             SQL-literal values
       -header / -noheader  show or hide column headers
       -separator SEP     field separator for -list mode (default "|")
       -nullvalue STR     text to print for NULL values (default "")
@@ -102,10 +116,12 @@ enum Parser {
       .schema [TABLE]    show CREATE statements
       .databases         list attached databases
       .indexes [TABLE]   list indexes
-      .mode MODE         set output mode (list/csv/line/column/json)
+      .mode MODE [TABLE] set output mode (list/csv/tabs/ascii/column/
+                         markdown/table/box/line/json/html/quote/insert)
       .headers on|off    show or hide headers
       .separator SEP     set the -list separator
       .nullvalue STR     set the NULL placeholder
+      .dump [TABLE]      dump the database (or one table) as SQL
       .read FILE         run SQL from FILE
       .open FILE         close the current database and open FILE
       .show              show current settings
