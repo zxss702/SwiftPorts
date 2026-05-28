@@ -224,7 +224,8 @@ jobs:
                         ZstdKit ZstdCommand \
                         Lz4Kit Lz4Command \
                         GitHub GhCommand GitLab GlabCommand \
-                        SwiftGit GitCommand; do
+                        SwiftGit GitCommand \
+                        SQLiteKit Sqlite3Command; do
             echo "::group::swift build --target $target"
             swift build --swift-sdk "$SWIFT_SDK_TARGET" --target "$target"
             echo "::endgroup::"
