@@ -129,7 +129,10 @@ public final class SQLiteDatabase {
     }
 
     public func schemaSQL(of table: String?) throws -> [String] {
-        let filter = table.map { " AND name = '\(Self.quote($0))'" } ?? ""
+        // Filter on `tbl_name`, not `name`, so `.schema foo` also returns
+        // foo's indexes and triggers (whose tbl_name is foo) — matching
+        // sqlite3. For the table/view row itself, tbl_name == name.
+        let filter = table.map { " AND tbl_name = '\(Self.quote($0))'" } ?? ""
         let sql = "SELECT sql FROM sqlite_schema WHERE sql NOT NULL\(filter) ORDER BY rowid;"
         return try evaluate(sql).first?.rows.compactMap { $0.first?.text } ?? []
     }

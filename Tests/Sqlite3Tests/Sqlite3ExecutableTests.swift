@@ -123,6 +123,12 @@ import Testing
         #expect(r.stderr == "Parse error near line 1: near \"SELEC\": syntax error\n  SELEC 1;\n  ^--- error here\n")
     }
 
+    @Test func dotReadMissingFileFailsExitCode() async throws {
+        let r = try await run([":memory:"], input: ".read /no/such/file\n")
+        #expect(r.exit == 1)
+        #expect(!r.stderr.isEmpty)
+    }
+
     @Test func scriptRuntimeErrorLineNumber() async throws {
         let r = try await run([":memory:"],
             input: "CREATE TABLE x(a INTEGER NOT NULL);\nINSERT INTO x VALUES(NULL);\n")

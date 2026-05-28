@@ -53,6 +53,20 @@ import Testing
         #expect(schema[0].contains("CREATE TABLE alpha"))
     }
 
+    @Test func schemaIncludesIndexesAndTriggers() throws {
+        let db = try SQLiteDatabase.inMemory()
+        try db.evaluate("""
+            CREATE TABLE foo(id INTEGER, x TEXT);
+            CREATE INDEX idx ON foo(x);
+            CREATE TRIGGER tr AFTER INSERT ON foo BEGIN SELECT 1; END;
+            """)
+        let schema = try db.schemaSQL(of: "foo")
+        #expect(schema.count == 3)
+        #expect(schema[0].contains("CREATE TABLE foo"))
+        #expect(schema.contains { $0.contains("CREATE INDEX idx") })
+        #expect(schema.contains { $0.contains("CREATE TRIGGER tr") })
+    }
+
     @Test func multiStatementResultSets() throws {
         let db = try SQLiteDatabase.inMemory()
         let sets = try db.evaluate("SELECT 1 AS a; SELECT 2 AS b, 3 AS c;")

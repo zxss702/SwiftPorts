@@ -342,12 +342,13 @@ final class Session {
     /// Reads a SQL/dot-command script through ShellKit's sandbox gate and
     /// runs it.
     func runScript(path: String) async {
-        guard let url = await resolveAuthorized(path) else { return }
+        guard let url = await resolveAuthorized(path) else { exitCode = 1; return }
         do {
             let text = try String(contentsOf: url, encoding: .utf8)
             _ = await process(text, context: .script)
         } catch {
             err("Error: cannot open \"\(path)\"\n")
+            exitCode = 1
         }
     }
 
