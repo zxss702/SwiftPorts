@@ -117,6 +117,8 @@ final class Session {
     private var echo: Bool
     private var bail: Bool
     private var changesMode = false
+    /// When on, print the EXPLAIN QUERY PLAN tree before each statement.
+    private var eqp = false
     /// When set, result output is buffered to a file instead of stdout
     /// (`.output` / `.once`).
     private var redirect: Redirect?
@@ -210,6 +212,7 @@ final class Session {
     @discardableResult
     private func runStatement(_ sql: String, startLine: Int, context: SourceContext) -> Bool {
         if echo { out(sql.trimmingCharacters(in: .whitespacesAndNewlines) + "\n") }
+        if eqp { renderQueryPlan(sql) }
         do {
             for set in try database.evaluate(sql) {
                 out(formatter.render(set))
@@ -271,6 +274,30 @@ final class Session {
         let line = String(decoding: bytes[lineStart..<lineEnd], as: UTF8.self)
         let pad = String(repeating: " ", count: position - lineStart)
         return "  \(line)\n  \(pad)^--- error here\n"
+    }
+
+    /// Renders `EXPLAIN QUERY PLAN` for `sql` as the tree sqlite3 prints
+    /// under `.eqp on` — children grouped by parent id with `|--` / `\`--`
+    /// connectors.
+    private func renderQueryPlan(_ sql: String) {
+        let trimmed = sql.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let plan = try? database.evaluate("EXPLAIN QUERY PLAN \(trimmed)").first,
+              !plan.rows.isEmpty else { return }
+        let nodes: [(id: Int, parent: Int, detail: String)] = plan.rows.compactMap { row in
+            guard case .integer(let id) = row[0], case .integer(let parent) = row[1] else { return nil }
+            return (Int(id), Int(parent), row.count > 3 ? (row[3].cliText ?? "") : "")
+        }
+        var output = "QUERY PLAN\n"
+        func level(_ parent: Int, _ prefix: String) {
+            let children = nodes.filter { $0.parent == parent }
+            for (i, node) in children.enumerated() {
+                let last = i == children.count - 1
+                output += prefix + (last ? "`--" : "|--") + node.detail + "\n"
+                level(node.id, prefix + (last ? "   " : "|  "))
+            }
+        }
+        level(0, "")
+        out(output)
     }
 
     // MARK: Dot-commands
@@ -392,6 +419,11 @@ final class Session {
 
         case ".changes":
             if let value = Self.onOff(args.first) { changesMode = value }
+
+        case ".eqp":
+            // "full" also dumps bytecode in sqlite3; we render the plan tree.
+            if args.first?.lowercased() == "full" { eqp = true }
+            else if let value = Self.onOff(args.first) { eqp = value }
 
         case ".print":
             out(args.joined(separator: " ") + "\n")

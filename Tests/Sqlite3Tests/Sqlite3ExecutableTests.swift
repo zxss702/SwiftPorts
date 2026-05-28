@@ -79,6 +79,26 @@ import Testing
         #expect(r.stdout.contains("changes: 3   total_changes: 3"))
     }
 
+    @Test func eqpShowsScanPlan() async throws {
+        let r = try await run([":memory:"], input: "CREATE TABLE t(x);\n.eqp on\nSELECT * FROM t;\n")
+        #expect(r.stdout == "QUERY PLAN\n`--SCAN t\n")
+    }
+
+    @Test func eqpShowsIndexSearch() async throws {
+        let r = try await run([":memory:"], input: """
+        CREATE TABLE t(id INTEGER, name TEXT);
+        CREATE INDEX ix ON t(name);
+        .eqp on
+        SELECT * FROM t WHERE name = 'bob';
+        """)
+        #expect(r.stdout.contains("QUERY PLAN\n`--SEARCH t USING INDEX ix (name=?)"))
+    }
+
+    @Test func eqpOffStopsPlans() async throws {
+        let r = try await run([":memory:"], input: ".eqp on\n.eqp off\nSELECT 1;\n")
+        #expect(r.stdout == "1\n")
+    }
+
     @Test func scriptContinuesAfterError() async throws {
         // A script keeps going after an error (exit 1), matching sqlite3.
         let r = try await run([":memory:"], input: "SELECT * FROM nope;\nSELECT 99;\n")

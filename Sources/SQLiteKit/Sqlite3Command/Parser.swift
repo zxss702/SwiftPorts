@@ -131,6 +131,7 @@ enum Parser {
       .echo on|off       echo each statement before running it
       .bail on|off       stop after an error
       .changes on|off    report changed-row counts after each statement
+      .eqp on|off        print the query plan before each statement
       .print TEXT...     print TEXT
       .import FILE TABLE import delimited FILE into TABLE
       .output [FILE]     send output to FILE (stdout if omitted)
