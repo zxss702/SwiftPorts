@@ -137,6 +137,8 @@ enum Parser {
       .once FILE         send the next command's output to FILE
       .read FILE         run SQL from FILE
       .open FILE         close the current database and open FILE
+      .backup [DB] FILE  back up the database to FILE
+      .restore [DB] FILE restore the database from FILE
       .show              show current settings
       .help              show this message
       .quit / .exit      exit

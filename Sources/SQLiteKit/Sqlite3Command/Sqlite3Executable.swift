@@ -428,6 +428,42 @@ final class Session {
             }
             importDelimited(text, into: args[1])
 
+        case ".backup":
+            guard let (dbName, path) = Self.dbAndFile(args) else {
+                err("Error: .backup expects ?DB? FILE\n")
+                return
+            }
+            guard let url = await resolveAuthorized(path) else { return }
+            do {
+                let destination = try SQLiteDatabase(.file(url.path))
+                defer { destination.close() }
+                try database.backup(to: destination, sourceName: dbName)
+            } catch let error as SQLiteError {
+                err("Error: \(error.message)\n")
+                exitCode = 1
+            } catch {
+                err("Error: \(error)\n")
+                exitCode = 1
+            }
+
+        case ".restore":
+            guard let (dbName, path) = Self.dbAndFile(args) else {
+                err("Error: .restore expects ?DB? FILE\n")
+                return
+            }
+            guard let url = await resolveAuthorized(path) else { return }
+            do {
+                let source = try SQLiteDatabase(.file(url.path))
+                defer { source.close() }
+                try source.backup(to: database, destinationName: dbName)
+            } catch let error as SQLiteError {
+                err("Error: \(error.message)\n")
+                exitCode = 1
+            } catch {
+                err("Error: \(error)\n")
+                exitCode = 1
+            }
+
         case ".show":
             let settings = [
                 "     mode: \(formatter.mode.rawValue)",
@@ -587,6 +623,13 @@ final class Session {
         case "off", "0", "no", "false": return false
         default: return nil
         }
+    }
+
+    /// Parses a `?DB? FILE` argument list (db name defaults to "main").
+    private static func dbAndFile(_ args: [String]) -> (db: String, file: String)? {
+        if args.count >= 2 { return (args[0], args[1]) }
+        if args.count == 1 { return ("main", args[0]) }
+        return nil
     }
 
     /// Splits a dot-command line into tokens, honoring double quotes.

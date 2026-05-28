@@ -152,6 +152,24 @@ import Testing
         }
     }
 
+    @Test func dotBackupAndRestore() async throws {
+        try await withTempDir { dir in
+            let backup = dir.appendingPathComponent("bk.db")
+            let r1 = try await run([":memory:"], input: """
+            CREATE TABLE t(id, name);
+            INSERT INTO t VALUES(1,'alice'),(2,'bob');
+            .backup \(backup.path)
+            """)
+            #expect(r1.exit == 0)
+            // Restore the backup into a fresh in-memory database.
+            let r2 = try await run([":memory:"], input: """
+            .restore \(backup.path)
+            SELECT id || '/' || name FROM t ORDER BY id;
+            """)
+            #expect(r2.stdout == "1/alice\n2/bob\n")
+        }
+    }
+
     @Test func boxFlag() async throws {
         let r = try await run(["-box", ":memory:", "SELECT 1 AS a;"])
         #expect(r.stdout == "┌───┐\n│ a │\n├───┤\n│ 1 │\n└───┘\n")

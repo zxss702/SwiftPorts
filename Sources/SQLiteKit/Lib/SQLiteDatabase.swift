@@ -145,6 +145,22 @@ public final class SQLiteDatabase {
         } ?? []
     }
 
+    /// Copies this database into `destination` using SQLite's online backup
+    /// API — backing the CLI's `.backup` / `.restore`.
+    public func backup(to destination: SQLiteDatabase,
+                       sourceName: String = "main",
+                       destinationName: String = "main") throws {
+        guard let backup = sqlite3_backup_init(destination.handle, destinationName, handle, sourceName) else {
+            throw SQLiteError(code: sqlite3_errcode(destination.handle),
+                              message: String(cString: sqlite3_errmsg(destination.handle)))
+        }
+        sqlite3_backup_step(backup, -1)
+        let rc = sqlite3_backup_finish(backup)
+        guard rc == SQLITE_OK else {
+            throw SQLiteError(code: rc, message: String(cString: sqlite3_errmsg(destination.handle)))
+        }
+    }
+
     // MARK: Static helpers
 
     public static var libVersion: String { String(cString: sqlite3_libversion()) }
