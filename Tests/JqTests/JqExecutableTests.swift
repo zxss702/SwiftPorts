@@ -1,3 +1,4 @@
+#if !os(Android)  // argv-parsing test; ArgumentParser trips the Android explicit-module scanner
 import Foundation
 import ShellKit
 import Testing
@@ -84,3 +85,5 @@ import Testing
         #expect(cmd.rawArgv == ["-r", ".name"])
     }
 }
+
+#endif  // !os(Android)

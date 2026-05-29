@@ -1,4 +1,3 @@
-import ArgumentParser
 import ShellKit
 
 /// Tri-state `--color=<when>` argument shared by every CLI in
@@ -19,7 +18,13 @@ import ShellKit
 ///
 /// `auto` is the default — matches `color.ui=auto` in git's own
 /// config.
-public enum ColorChoice: String, ExpressibleByArgument, Sendable, CaseIterable {
+///
+/// ForgeKit itself stays free of any ArgumentParser dependency, so
+/// this enum is a plain value type here (it ships `init?(argument:)`
+/// for hand-rolled parsers like `rg` / `fd`). Command targets that bind
+/// it as an `@Option` declare the `ExpressibleByArgument` conformance
+/// in their own module — see `GitCommand`'s `ColorChoice+ArgumentParser`.
+public enum ColorChoice: String, Sendable, CaseIterable {
     case auto, always, never
 
     public init?(argument: String) {

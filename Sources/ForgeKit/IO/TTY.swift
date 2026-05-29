@@ -8,8 +8,6 @@ import Glibc
 import Musl
 #elseif canImport(Android)
 import Android
-#elseif canImport(Bionic)
-import Bionic
 #endif
 
 /// Lightweight TTY + colour-capability detection. Mirrors what gh does

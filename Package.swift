@@ -1,6 +1,67 @@
 // swift-tools-version:6.2
 import PackageDescription
 
+// Platforms where ArgumentParser-bearing command targets may enter a
+// TEST target's module graph. Excludes Android: its explicit-module
+// dependency scanner trips a spurious 'Android' <-> 'ArgumentParser'
+// cycle once the large `--build-tests` graph pulls ArgumentParser into a
+// test target. The argv-parsing test targets drop their `*Command`
+// dependency on Android via this list; their sources carry a matching
+// `#if !os(Android)` so nothing references the absent module there.
+let commandTestPlatforms: [Platform] = [
+    .macOS, .iOS, .tvOS, .watchOS, .linux, .windows,
+]
+
+// `swift build` is invoked with TARGET_OS_ANDROID=1 by
+// skiptools/swift-android-action when cross-compiling for Android. The
+// ArgumentParser command/executable layer (the `*Command` libraries,
+// their executables, and the argv-parsing test targets) can't share
+// Android's large `--build-tests` module-scanner graph — it trips a
+// spurious 'Android' <-> 'ArgumentParser' explicit-module cycle (an
+// upstream toolchain bug). The realistic Android consumer is SwiftBash
+// embedding the SDK *libraries*, which — after the ArgumentParser
+// decouple (ForgeKit + ShellKit) — build and test cleanly. So drop that
+// command layer from Android builds; the SDK libraries and their
+// ArgumentParser-free test suites stay and run on the emulator.
+let buildingForAndroid = Context.environment["TARGET_OS_ANDROID"] == "1"
+
+let androidDroppedTargets: Set<String> = [
+    // command (ArgumentParser) libraries
+    "ZipCommand", "UnzipCommand", "TarCommand", "GzipCommand",
+    "Bzip2Command", "XzCommand", "ZstdCommand", "Lz4Command",
+    "JqCommand", "GlamCommand", "GhCommand", "GlabCommand",
+    "GitCommand", "RgCommand", "FdCommand", "Sqlite3Command",
+    // executables
+    "zip", "unzip", "tar", "gzip", "gunzip", "zcat", "bzip2", "bunzip2",
+    "bzcat", "xz", "unxz", "xzcat", "zstd", "unzstd", "zstdcat", "lz4",
+    "unlz4", "lz4cat", "jq", "glam", "gh", "glab", "git", "rg", "fd",
+    "sqlite3",
+    // argv-parsing test targets (each needs a `*Command` lib)
+    "ZipTests", "UnzipTests", "TarTests", "GzipTests", "Bzip2Tests",
+    "XzTests", "ZstdTests", "Lz4Tests", "JqTests", "GlamTests",
+    "GitCommandTests", "RgTests", "FdTests", "Sqlite3Tests",
+    // GitHubTests is the only Android-scope test target that links a C++
+    // SwiftPM target (swift-crypto's BoringSSL, via GitHub). Linking C++
+    // into the xctest executable makes swiftc go through clang's C++ link
+    // driver, which injects host C++ defaults (-lstdc++ + a host
+    // /usr/lib/x86_64-linux-gnu search path) and breaks Bionic libc
+    // resolution for the whole bundle. Dropping it keeps the test bundle
+    // C++-free so the other SDK suites link + run on the emulator.
+    // (GitHubTests still runs on the four full-build platforms.)
+    "GitHubTests",
+]
+
+func androidFiltered(products list: [Product]) -> [Product] {
+    buildingForAndroid
+        ? list.filter { !androidDroppedTargets.contains($0.name) }
+        : list
+}
+func androidFiltered(targets list: [Target]) -> [Target] {
+    buildingForAndroid
+        ? list.filter { !androidDroppedTargets.contains($0.name) }
+        : list
+}
+
 // SwiftPorts is a monorepo of pure-Swift, cross-platform
 // reimplementations of standard CLI tools and SDK clients.
 //
@@ -31,7 +92,7 @@ let package = Package(
         .tvOS(.v16),
         .watchOS(.v9),
     ],
-    products: [
+    products: androidFiltered(products: [
         // ForgeKit — host-agnostic CLI plumbing (IO, Git, Secrets).
         // The previous `Sandbox` product moved upstream to
         // [ShellKit](https://github.com/Cocoanetics/ShellKit) — every
@@ -156,7 +217,7 @@ let package = Package(
         .library(name: "FdKit", targets: ["FdKit"]),
         .library(name: "FdCommand", targets: ["FdCommand"]),
         .executable(name: "fd", targets: ["fd"]),
-    ],
+    ]),
     dependencies: [
         // Apple / swiftlang
         .package(url: "https://github.com/apple/swift-argument-parser",
@@ -204,6 +265,11 @@ let package = Package(
         // `Shell.current` so they participate in any host's pipeline
         // (SwiftBash, swift-js, SwiftScript, …) without a fork.
         // Pinned to `main` until ShellKit ships a tagged release.
+        // ShellKit `main` carries zero ArgumentParser dependency — the
+        // ParsableCommand bridge lives in the separate `ShellCommandKit`
+        // product — which keeps ArgumentParser off every SDK library's
+        // module graph (see Docs/Android.md). Pinned to `main` until
+        // ShellKit ships a tagged release.
         .package(url: "https://github.com/Cocoanetics/ShellKit",
                  branch: "main"),
 
@@ -225,17 +291,19 @@ let package = Package(
         .package(url: "https://github.com/stephencelis/CSQLite",
                  exact: "3.50.4"),
     ],
-    targets: [
+    targets: androidFiltered(targets: [
         // MARK: ForgeKit (host-agnostic plumbing)
-        // ArgumentParser is wired in so ForgeKit can ship reusable
-        // command primitives (`ColorChoice`, etc.) that bind directly
-        // into AsyncParsableCommand declarations in gh / glab / git
-        // without each umbrella redefining them.
+        // No ArgumentParser dependency: ForgeKit is imported by every SDK
+        // library, so pulling ArgumentParser here would drag it (and its
+        // libc-overlay module edges) onto every SDK module graph — which
+        // tripped a spurious explicit-module scanner cycle on Android.
+        // ForgeKit ships `ColorChoice` as a plain value type; command
+        // targets that bind it as an `@Option` declare the
+        // `ExpressibleByArgument` conformance themselves (see GitCommand).
         .target(
             name: "ForgeKit",
             dependencies: [
                 .product(name: "ShellKit", package: "ShellKit"),
-                .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Sources/ForgeKit"
         ),
@@ -292,11 +360,17 @@ let package = Package(
         ),
         .testTarget(
             name: "ZipTests",
-            dependencies: ["ZipCommand", "ZipKit"]
+            dependencies: [
+                .target(name: "ZipCommand", condition: .when(platforms: commandTestPlatforms)),
+                "ZipKit",
+            ]
         ),
         .testTarget(
             name: "UnzipTests",
-            dependencies: ["UnzipCommand", "ZipKit"]
+            dependencies: [
+                .target(name: "UnzipCommand", condition: .when(platforms: commandTestPlatforms)),
+                "ZipKit",
+            ]
         ),
 
         // MARK: TarKit umbrella
@@ -335,7 +409,10 @@ let package = Package(
         ),
         .testTarget(
             name: "TarTests",
-            dependencies: ["TarCommand", "TarKit"]
+            dependencies: [
+                .target(name: "TarCommand", condition: .when(platforms: commandTestPlatforms)),
+                "TarKit",
+            ]
         ),
 
         // MARK: GzipKit umbrella
@@ -349,7 +426,14 @@ let package = Package(
         .systemLibrary(
             name: "CZlib",
             path: "Sources/CZlib",
-            pkgConfig: "zlib",
+            // No `pkgConfig:`. On an Android cross-build SwiftPM runs HOST
+            // pkg-config, which injects `-L/usr/lib/x86_64-linux-gnu -lz`
+            // into the link; the host libz then pulls host glibc (no
+            // Bionic __libc_init/__errno/__assert2) and breaks the xctest
+            // link. The modulemap's `link "z"` already adds `-lz`, resolved
+            // against the active sysroot; zlib.h is a default system header
+            // (and the Windows CI passes the vcpkg include path), so zlib
+            // is still found on every platform without pkg-config.
             providers: [
                 .brew(["zlib"]),
                 .apt(["zlib1g-dev"]),
@@ -426,7 +510,10 @@ let package = Package(
         ),
         .testTarget(
             name: "GzipTests",
-            dependencies: ["GzipCommand", "GzipKit"]
+            dependencies: [
+                .target(name: "GzipCommand", condition: .when(platforms: commandTestPlatforms)),
+                "GzipKit",
+            ]
         ),
 
         // MARK: Bzip2Kit umbrella
@@ -655,7 +742,10 @@ let package = Package(
         ),
         .testTarget(
             name: "JqTests",
-            dependencies: ["JqCommand", "JqKit"]
+            dependencies: [
+                .target(name: "JqCommand", condition: .when(platforms: commandTestPlatforms)),
+                "JqKit",
+            ]
         ),
 
         // MARK: GlamKit umbrella
@@ -705,7 +795,10 @@ let package = Package(
         ),
         .testTarget(
             name: "GlamTests",
-            dependencies: ["GlamCommand", "GlamKit"]
+            dependencies: [
+                .target(name: "GlamCommand", condition: .when(platforms: commandTestPlatforms)),
+                "GlamKit",
+            ]
         ),
 
         // MARK: GitHub umbrella
@@ -749,9 +842,9 @@ let package = Package(
         .testTarget(
             name: "GitHubTests",
             dependencies: [
-                "GitHub", "GhCommand", "ForgeKit", .product(name: "ShellKit", package: "ShellKit"),
+                "GitHub", "ForgeKit", .product(name: "ShellKit", package: "ShellKit"),
                 "JqKit", "Lz4Kit", "TarKit", "XzKit", "ZipKit",
-            ],
+            ] + (buildingForAndroid ? [] : ["GhCommand"]),
             resources: [
                 .copy("Fixtures"),
             ]
@@ -789,7 +882,8 @@ let package = Package(
         ),
         .testTarget(
             name: "GitLabTests",
-            dependencies: ["GitLab", "GlabCommand", "ForgeKit"]
+            dependencies: ["GitLab", "ForgeKit"]
+                + (buildingForAndroid ? [] : ["GlabCommand"])
             // Re-add `resources: [.copy("Fixtures")]` once Tests/GitLabTests/Fixtures
             // has any tracked files; the empty dir doesn't survive git checkout.
         ),
@@ -844,7 +938,10 @@ let package = Package(
         ),
         .testTarget(
             name: "GitCommandTests",
-            dependencies: ["GitCommand", "SwiftGit", "ForgeKit"]
+            dependencies: [
+                .target(name: "GitCommand", condition: .when(platforms: commandTestPlatforms)),
+                "SwiftGit", "ForgeKit",
+            ]
         ),
 
         // MARK: RipgrepKit umbrella
@@ -883,7 +980,10 @@ let package = Package(
         ),
         .testTarget(
             name: "RgTests",
-            dependencies: ["RgCommand", "RipgrepKit"]
+            dependencies: [
+                .target(name: "RgCommand", condition: .when(platforms: commandTestPlatforms)),
+                "RipgrepKit",
+            ]
         ),
 
         // MARK: FdKit umbrella
@@ -922,7 +1022,10 @@ let package = Package(
         ),
         .testTarget(
             name: "FdTests",
-            dependencies: ["FdCommand", "FdKit", "RipgrepKit"]
+            dependencies: [
+                .target(name: "FdCommand", condition: .when(platforms: commandTestPlatforms)),
+                "FdKit", "RipgrepKit",
+            ]
         ),
 
         // MARK: SQLiteKit umbrella (issue #43)
@@ -941,7 +1044,12 @@ let package = Package(
             linkerSettings: [
                 .linkedLibrary("m", .when(platforms: [.linux, .android])),
                 .linkedLibrary("dl", .when(platforms: [.linux, .android])),
-                .linkedLibrary("pthread", .when(platforms: [.linux, .android])),
+                // Linux only: Android's Bionic merges pthread into libc —
+                // there is no separate libpthread.so, so `-lpthread` fails
+                // with "unable to find library -lpthread". (It only linked
+                // before because a stray host -L was supplying host
+                // libpthread.) The pthread symbols come from libc here.
+                .linkedLibrary("pthread", .when(platforms: [.linux])),
             ]
         ),
         .target(
@@ -964,7 +1072,10 @@ let package = Package(
         ),
         .testTarget(
             name: "Sqlite3Tests",
-            dependencies: ["Sqlite3Command", "SQLiteKit"]
+            dependencies: [
+                .target(name: "Sqlite3Command", condition: .when(platforms: commandTestPlatforms)),
+                "SQLiteKit",
+            ]
         ),
-    ]
+    ])
 )

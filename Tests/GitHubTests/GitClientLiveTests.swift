@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 @testable import GitHub
-@testable import ForgeKit
+import ForgeKit
 
 #if os(macOS) || os(Linux) || os(Windows)
 /// Opt-in: actually shells out to `git`. Skipped unless we're inside

@@ -54,15 +54,28 @@ to `main` and PRs. Matrix:
 - **Linux** — `swift:6.2-jammy` container, full `swift build && swift test`
 - **Windows** — `windows-latest` + `SwiftyLab/setup-swift`, full
   `swift build --build-tests` + `swift test` (libgit2 C deps via vcpkg)
-- **Android** — `ubuntu-latest` + `skiptools/swift-android-action`; builds an
-  **explicit list of library targets** with the Swift Android SDK (no
-  on-device tests)
+- **Android** — `ubuntu-latest` + `skiptools/swift-android-action`;
+  cross-builds the **SDK libraries** and **runs their test suites** on an
+  x86_64 emulator (283 tests / 43 suites). The ArgumentParser
+  command/executable layer is dropped on Android (keyed on
+  `TARGET_OS_ANDROID` in `Package.swift`) to dodge a spurious
+  explicit-module scanner cycle, and `GitHubTests` is dropped because it
+  links a C++ target (BoringSSL) that pollutes the cross-link. Full
+  rationale + the ArgumentParser decouple: [Docs/Android.md](Docs/Android.md).
 
 All five jobs are required — none use `continue-on-error`, so any failure
-blocks the PR. (Windows + Android were once stretch goals; they now build
-cleanly across the matrix.) Note: the Android job builds a hand-maintained
-target list, so a **new library target must be added to that loop** in
-`swift.yml` or it won't be covered there.
+blocks the PR. Two Android rules for new targets:
+- SDK libraries must stay **ArgumentParser-free** (it lives in the
+  `<X>Command` layer): pulling ArgumentParser into a base lib like
+  ForgeKit/ShellKit drags it onto every SDK module graph and re-triggers
+  the scanner cycle. New ArgumentParser command/exec/argv-test targets —
+  **or any test target that links a C++ SwiftPM target** — go in
+  `androidDroppedTargets`.
+- Don't put `pkgConfig:` on a system library the Android build links
+  (host pkg-config pollutes the cross-link with host paths); rely on the
+  modulemap's `link`. Gate NDK-absent C libs (bz2/lzma/zstd/lz4) to
+  `[.macOS, .linux, .windows]`, and `pthread` to `[.linux]` (Bionic folds
+  it into libc).
 
 ## Layout — umbrella convention
 

@@ -1,3 +1,4 @@
+#if !os(Android)  // argv-parsing test; ArgumentParser trips the Android explicit-module scanner
 import Foundation
 import Testing
 import ArgumentParser
@@ -903,3 +904,5 @@ struct GitCommandParsingTests {
         #expect(cmd.object == "abc123")
     }
 }
+
+#endif  // !os(Android)

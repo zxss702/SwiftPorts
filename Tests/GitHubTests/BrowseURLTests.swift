@@ -1,9 +1,10 @@
+#if !os(Android)  // argv-parsing test; ArgumentParser trips the Android explicit-module scanner
 import ArgumentParser
 import Foundation
 import Testing
 @testable import GitHub
 @testable import GhCommand
-@testable import ForgeKit
+import ForgeKit
 
 /// Mostly verifies the URL builder via the parsing layer; the actual
 /// `Browser.open` call happens at runtime and isn't tested here.
@@ -50,3 +51,5 @@ import Testing
         }
     }
 }
+
+#endif  // !os(Android)

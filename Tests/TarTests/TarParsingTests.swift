@@ -1,3 +1,4 @@
+#if !os(Android)  // argv-parsing test; ArgumentParser trips the Android explicit-module scanner
 import Foundation
 import Testing
 @testable import TarCommand
@@ -43,3 +44,5 @@ import Testing
         }
     }
 }
+
+#endif  // !os(Android)

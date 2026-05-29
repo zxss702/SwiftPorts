@@ -1,3 +1,4 @@
+#if !os(Android)  // argv-parsing test; ArgumentParser trips the Android explicit-module scanner
 import Foundation
 import Testing
 @testable import GitLab
@@ -95,3 +96,5 @@ private struct StubGitClient: GitClient {
         }
     }
 }
+
+#endif  // !os(Android)

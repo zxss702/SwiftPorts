@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 @testable import GitHub
-@testable import ForgeKit
+import ForgeKit
 
 @Suite struct GitClientErrorTests {
     @Test func noGitClientThrowsForWrites() async throws {

@@ -1,3 +1,4 @@
+#if !os(Android)  // argv-parsing test; ArgumentParser trips the Android explicit-module scanner
 import ArgumentParser
 import Foundation
 import Testing
@@ -190,3 +191,5 @@ import Testing
         #expect(items[2].name == "draft" && items[2].value == "true")
     }
 }
+
+#endif  // !os(Android)

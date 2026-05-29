@@ -1,5 +1,17 @@
 import Foundation
 import RipgrepKit
+// `stat` / `lstat` / `S_IFMT` / `S_IFIFO` come from the platform libc.
+// Foundation re-exports them on Darwin/Linux, but not under the Android
+// SDK, so import the libc overlay explicitly (mirrors ForgeKit's TTY).
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#elseif canImport(Android)
+import Android
+#endif
 
 /// Decides whether a walker entry passes the filter slice of fd's
 /// flag surface (type, size, time, exclude globs, depth bounds).

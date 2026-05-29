@@ -1,3 +1,4 @@
+#if !os(Android)  // argv-parsing test; ArgumentParser trips the Android explicit-module scanner
 import Foundation
 import Testing
 import Lz4Kit
@@ -239,3 +240,5 @@ import ZipKit
         #expect(FileManager.default.fileExists(atPath: extracted.path))
     }
 }
+
+#endif  // !os(Android)

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import ForgeKit
+import ForgeKit
 
 @Suite("StatusBadge")
 struct StatusBadgeTests {

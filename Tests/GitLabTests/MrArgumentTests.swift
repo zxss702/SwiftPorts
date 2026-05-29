@@ -1,3 +1,4 @@
+#if !os(Android)  // argv-parsing test; ArgumentParser trips the Android explicit-module scanner
 import Foundation
 import Testing
 @testable import GlabCommand
@@ -34,3 +35,5 @@ import Testing
         }
     }
 }
+
+#endif  // !os(Android)

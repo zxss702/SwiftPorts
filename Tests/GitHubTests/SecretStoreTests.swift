@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 @testable import GitHub
-@testable import ForgeKit
+import ForgeKit
 
 @Suite struct InMemorySecretStoreTests {
     @Test func roundTrip() async throws {

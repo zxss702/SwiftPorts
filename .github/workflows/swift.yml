@@ -177,56 +177,38 @@ jobs:
             -Xcc "-I$env:VCPKG_BASE\include" `
             -Xlinker "/LIBPATH:$env:VCPKG_BASE\lib"
 
-  # Uses skiptools/swift-android-action to install the swift.org Android
-  # SDK + NDK + emulator stack. We then invoke `swift build` ourselves
-  # so we can pass `--target` once per library target — SwiftPM's
-  # `--target` flag is `Optional<String>` (last-wins), so a single
-  # `swift build --target A --target B …` call only builds the last
-  # entry.
+  # Android: cross-build the SDK libraries and run their test suites on an
+  # x86_64 emulator, via skiptools/swift-android-action. No `container:` —
+  # the emulator needs nested KVM, only available on the bare ubuntu-*
+  # runner image.
   #
-  # Library-only build: the executable targets (`zip`, `unzip`, `gh`,
-  # `glab`, `git`) and XCTest test bundles still trip the action's
-  # standalone-Bionic-ELF link path with `undefined symbol: __libc_init`
-  # even after the libgit2 Bionic fixes landed (the ZIPFoundation arm
-  # of the same set of fixes went away when the package moved onto
-  # libarchive via `marcprux/swift-archive`). The realistic Android
-  # consumer is SwiftBash embedding the libraries, so cover compile of
-  # every library target individually and skip the link/emulator phase.
-  # Re-enable the executable + test pass once
-  # `skiptools/swift-android-action` ships an executable-friendly link
-  # recipe.
+  # Package.swift (keyed on the TARGET_OS_ANDROID env the action sets)
+  # drops two things from Android builds; see Docs/Android.md:
+  #
+  #   1. The ArgumentParser command/executable layer — it can't share
+  #      Android's large module-dependency-scanner graph (a spurious
+  #      'Android' <-> 'ArgumentParser' explicit-module cycle). The SDK
+  #      libraries are ArgumentParser-free after the ForgeKit/ShellKit
+  #      decouple, so they're unaffected.
+  #
+  #   2. GitHubTests — the only SDK test target that links a C++ SwiftPM
+  #      target (swift-crypto's BoringSSL). Linking C++ into the xctest
+  #      executable routes the link through clang's C++ driver, which
+  #      injects host C++ defaults (-lstdc++ + a host -L) and breaks
+  #      Bionic libc resolution for the whole bundle. The remaining SDK
+  #      suites are C++-free and link + run cleanly. (GitHubTests still
+  #      runs on the four full-build platforms.)
   build-android:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
-      - name: Install Swift Android SDK
+      - name: Build & test SDK libraries (Android emulator)
         uses: skiptools/swift-android-action@v2
         with:
-          # Pin to a full patch version. With the floating "6.3" key,
-          # the action's cached host toolchain drifted to a 6.3.1 build
-          # while the Android SDK at swift-6.3-release/android-sdk/…
-          # stayed at the original 6.3 — emitting "module compiled with
-          # Swift 6.3 cannot be imported by the Swift 6.3.1 compiler"
-          # on every target. 6.3.2 ships matching host + SDK tarballs.
+          # Pin to a full patch version. The floating "6.3" key drifts the
+          # cached host toolchain (6.3.1) ahead of the SDK (6.3) and breaks
+          # module imports; 6.3.2 ships matching host + SDK tarballs.
           swift-version: "6.3.2"
+          # SDK + NDK + emulator overrun the runner's ~14 GiB free space.
           free-disk-space: true
-          build-package: false
-          build-tests: false
-          run-tests: false
-      - name: Build each library target (Android)
-        run: |
-          for target in ForgeKit ZipKit ZipCommand UnzipCommand \
-                        TarKit TarCommand \
-                        GzipKit GzipCommand \
-                        Bzip2Kit Bzip2Command \
-                        XzKit XzCommand \
-                        ZstdKit ZstdCommand \
-                        Lz4Kit Lz4Command \
-                        GitHub GhCommand GitLab GlabCommand \
-                        SwiftGit GitCommand \
-                        SQLiteKit Sqlite3Command; do
-            echo "::group::swift build --target $target"
-            swift build --swift-sdk "$SWIFT_SDK_TARGET" --target "$target"
-            echo "::endgroup::"
-          done
