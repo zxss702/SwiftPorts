@@ -1,8 +1,7 @@
-#if !os(Android)  // argv-parsing test; ArgumentParser trips the Android explicit-module scanner
 import Foundation
 import ShellKit
 import Testing
-@testable import Sqlite3Command
+@testable import Sqlite3Shell
 @testable import SQLiteKit
 
 @Suite struct Sqlite3ExecutableTests {
@@ -595,5 +594,3 @@ import Testing
         #expect(r.stdout.contains("filename: :memory:"))
     }
 }
-
-#endif  // !os(Android)
