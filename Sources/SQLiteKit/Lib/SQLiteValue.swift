@@ -1,4 +1,6 @@
 import Foundation
+import CSQLiteShim
+import SQLiteSwiftCSQLite
 
 /// A single column value read from SQLite, preserving its storage class.
 public enum SQLiteValue: Equatable, Sendable {
@@ -33,10 +35,21 @@ public extension SQLiteValue {
         switch self {
         case .null: return "NULL"
         case .integer(let i): return String(i)
-        case .real(let d): return String(d)
+        case .real(let d): return Self.realLiteral(d)
         case .text(let s): return "'" + s.replacingOccurrences(of: "'", with: "''") + "'"
         case .blob(let b): return "X'" + b.map { String(format: "%02x", $0) }.joined() + "'"
         }
+    }
+
+    /// A real rendered exactly as sqlite3's round-trip contexts do
+    /// (`.dump` / quote / insert / JSON): full precision via the engine's
+    /// own `%!.20g` (e.g. `0.1+0.2` → `0.3000000000000000445`). Goes through
+    /// the C shim because Swift can't pass the `!` flag to a C variadic and
+    /// the platform formatter can't reproduce sqlite3's dtoa byte-for-byte.
+    static func realLiteral(_ d: Double) -> String {
+        guard let c = csqlite_real_literal(d) else { return String(d) }
+        defer { sqlite3_free(c) }
+        return String(cString: c)
     }
 }
 

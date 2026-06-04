@@ -55,15 +55,23 @@ public enum Sqlite3Executable {
             stderr.write("sqlite3: Error: \(error.message)\n")
             return 1
         }
+        // -safe also gates SQL-level filesystem access (ATTACH / load_extension)
+        // via an authorizer, not just the file-touching dot-commands.
+        if options.safe { database.enableSafeMode() }
 
-        // The -markdown/-table/-box flags turn headers on unless the user
-        // pinned them; the -column flag notably does not (matching sqlite3).
-        var showHeader = options.showHeader
-        if !options.headerExplicit, [.markdown, .table, .box].contains(options.mode) {
-            showHeader = true
-        }
+        // None of the columnar command-line flags flip the headers setting:
+        // -box/-table/-markdown render a header regardless of it, and -column
+        // leaves it off (matching sqlite3 — only the `.mode column`
+        // dot-command turns the setting on).
+        let showHeader = options.showHeader
 
-        let filename: String = { if case .file(let p) = location { return p } else { return ":memory:" } }()
+        // `.show`/`.open` display the database name as the user typed it
+        // (sqlite3's zDbFilename), not the sandbox-resolved host path — which
+        // also keeps host paths out of a sandboxed shell's output.
+        let filename: String = {
+            if let p = options.databasePath, p != ":memory:", !p.isEmpty { return p }
+            return ":memory:"
+        }()
         let session = Session(
             database: database,
             formatter: ResultFormatter(mode: options.mode,
@@ -76,6 +84,7 @@ public enum Sqlite3Executable {
             headerExplicit: options.headerExplicit,
             echo: options.echo,
             bail: options.bail,
+            safeMode: options.safe,
             filename: filename)
 
         // -init FILE, then any -cmd commands, before the main input.
@@ -92,8 +101,12 @@ public enum Sqlite3Executable {
                 if await session.process(statement, context: .inline) == false { break }
             }
         } else if !session.shouldQuit {
-            let input = await stdin.readAllString()
-            _ = await session.process(input, context: .script)
+            if options.interactive {
+                await session.runInteractive(stdin: stdin)
+            } else {
+                let input = await stdin.readAllString()
+                _ = await session.process(input, context: .script)
+            }
         }
 
         session.finishOutput()
@@ -105,8 +118,9 @@ public enum Sqlite3Executable {
 /// drives statement / dot-command execution. One instance per invocation.
 final class Session {
     /// Where the current input came from. SQLite formats errors (and sets
-    /// exit codes) differently for a command-line argument vs a script.
-    enum SourceContext { case inline, script }
+    /// exit codes) differently for a command-line argument, a script, and
+    /// the interactive REPL.
+    enum SourceContext { case inline, script, interactive }
 
     private var database: SQLiteDatabase
     private var formatter: ResultFormatter
@@ -120,6 +134,11 @@ final class Session {
     private var headerExplicit: Bool
     private var echo: Bool
     private var bail: Bool
+    /// `-safe` mode: refuse dot-commands that touch the filesystem or shell.
+    private let safeMode: Bool
+    /// Input line number of the dot-command currently dispatching, for the
+    /// `-safe` refusal message (0 for a command-line argument).
+    private var safeLine = 0
     private var changesMode = false
     /// When on, print the EXPLAIN QUERY PLAN tree before each statement.
     private var eqp = false
@@ -141,6 +160,7 @@ final class Session {
          headerExplicit: Bool,
          echo: Bool,
          bail: Bool,
+         safeMode: Bool = false,
          filename: String) {
         self.database = database
         self.formatter = formatter
@@ -151,6 +171,7 @@ final class Session {
         self.headerExplicit = headerExplicit
         self.echo = echo
         self.bail = bail
+        self.safeMode = safeMode
     }
 
     private func out(_ s: String) {
@@ -189,6 +210,8 @@ final class Session {
             // Dot-commands are only recognized at a statement boundary.
             if buffer.isEmpty && trimmed.hasPrefix(".") {
                 if echo { out(trimmed + "\n") }
+                // sqlite3 reports a command-line argument as "line 0".
+                safeLine = context == .inline ? 0 : lineNo
                 await handleDot(trimmed)
                 continue
             }
@@ -197,7 +220,7 @@ final class Session {
             if SQLiteDatabase.isCompleteStatement(buffer) {
                 let sql = buffer
                 buffer = ""
-                if !runStatement(sql, startLine: statementStart, context: context) && stopsOnError() {
+                if !(await runStatement(sql, startLine: statementStart, context: context)) && stopsOnError() {
                     return false
                 }
             }
@@ -206,19 +229,84 @@ final class Session {
         let leftover = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
         buffer = ""
         if !leftover.isEmpty {
-            if !runStatement(leftover, startLine: statementStart, context: context) && stopsOnError() {
+            if !(await runStatement(leftover, startLine: statementStart, context: context)) && stopsOnError() {
                 return false
             }
         }
         return true
     }
 
+    /// The startup banner sqlite3 prints when entering interactive mode:
+    /// the library version plus the date/time prefix of the source id.
+    static var banner: String {
+        "SQLite version \(SQLiteDatabase.libVersion) \(String(SQLiteDatabase.sourceID.prefix(19)))\n"
+            + "Enter \".help\" for usage hints.\n"
+    }
+
+    /// The line-buffered interactive REPL (`-interactive`): a startup
+    /// banner, then `sqlite> ` / `   ...> ` prompts until `.quit` or EOF.
+    ///
+    /// Triggered by the explicit flag rather than auto-detecting a TTY —
+    /// an embedded builtin doesn't own the terminal, so interactivity is
+    /// the host's call. A SIGINT→`sqlite3_interrupt` handler is likewise
+    /// left to the host: installing a process-global signal handler from a
+    /// library would be wrong.
+    func runInteractive(stdin: InputSource) async {
+        out(Self.banner)
+        var lineNo = 0
+        var statementStart = 1
+        while !shouldQuit {
+            // The continuation prompt shows while a statement is still open.
+            out(buffer.isEmpty ? "sqlite> " : "   ...> ")
+            guard let line = await stdin.readLine() else { out("\n"); break }
+            lineNo += 1
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            // Dot-commands are recognized only at a statement boundary.
+            if buffer.isEmpty && trimmed.hasPrefix(".") {
+                if echo { out(trimmed + "\n") }
+                safeLine = lineNo
+                await handleDot(trimmed)
+                continue
+            }
+            if buffer.isEmpty { statementStart = lineNo }
+            buffer += line + "\n"
+            if SQLiteDatabase.isCompleteStatement(buffer) {
+                let sql = buffer
+                buffer = ""
+                _ = await runStatement(sql, startLine: statementStart, context: .interactive)
+            }
+        }
+        // Run a trailing statement left unterminated at EOF, like sqlite3.
+        let leftover = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
+        buffer = ""
+        if !leftover.isEmpty {
+            _ = await runStatement(leftover, startLine: statementStart, context: .interactive)
+        }
+    }
+
     /// Runs one chunk of SQL and renders any result sets. Returns `false`
     /// on error (after reporting it).
     @discardableResult
-    private func runStatement(_ sql: String, startLine: Int, context: SourceContext) -> Bool {
+    private func runStatement(_ sql: String, startLine: Int, context: SourceContext) async -> Bool {
         if echo { out(sql.trimmingCharacters(in: .whitespacesAndNewlines) + "\n") }
         if eqp { renderQueryPlan(sql) }
+        // Gate any ATTACH'd file through the host sandbox before SQLite opens
+        // it — the same resolve/authorize path the db file and `.read` /
+        // `.open` take. (`-safe` blocks ATTACH outright via its authorizer,
+        // so this is the non-safe confinement path; `:memory:` / temp ATTACHes
+        // touch no file and are skipped.)
+        if !safeMode, sql.range(of: "attach", options: .caseInsensitive) != nil {
+            for target in database.attachTargets(in: sql)
+            where !target.isEmpty && target != ":memory:" {
+                do {
+                    try await Shell.authorize(Shell.resolve(target))
+                } catch {
+                    err("Error: \(error)\n")
+                    exitCode = 1
+                    return false
+                }
+            }
+        }
         do {
             for set in try database.evaluate(sql) {
                 out(formatter.render(set))
@@ -229,6 +317,16 @@ final class Session {
             if redirect?.once == true { finishOutput() }
             return true
         } catch let error as SQLiteError {
+            // A `-safe` authorizer denial surfaces as a generic SQLITE_AUTH
+            // error; replace it with sqlite3's safe-mode message and halt
+            // (line 0 for a command-line argument).
+            if let violation = database.safeModeViolation {
+                database.clearSafeModeViolation()
+                err("line \(context == .inline ? 0 : startLine): \(violation)\n")
+                exitCode = 1
+                shouldQuit = true
+                return false
+            }
             report(error, sql: sql, startLine: startLine, context: context)
             return false
         } catch {
@@ -253,6 +351,10 @@ final class Session {
         case .inline:
             header = error.phase == .prepare ? "Error: in prepare, " : "Error: stepping, "
             exitCode = error.code
+        case .interactive:
+            // The REPL keeps going on error (no exit code) and omits the
+            // line number that script context carries.
+            header = (error.phase == .prepare ? "Parse error: " : "Runtime error: ")
         }
         var message = error.message
         if error.phase == .step { message += " (\(error.code))" }
@@ -313,6 +415,17 @@ final class Session {
         guard let command = tokens.first else { return }
         let args = Array(tokens.dropFirst())
 
+        // `-safe` refuses any dot-command that could touch the filesystem or
+        // shell, and aborts — matching sqlite3. (SQL-level restrictions like
+        // ATTACH / load_extension would need an authorizer and are tracked
+        // separately.)
+        if safeMode, let message = Self.safeModeBlock(command, args) {
+            err("line \(safeLine): \(message)\n")
+            exitCode = 1
+            shouldQuit = true
+            return
+        }
+
         switch command {
         case ".quit", ".exit":
             shouldQuit = true
@@ -359,6 +472,34 @@ final class Session {
                 if !lines.isEmpty { out(lines.joined(separator: "\n") + "\n") }
             }
 
+        case ".fullschema":
+            introspect {
+                // The schema as plain statements (no view comments), then —
+                // if ANALYZE has run — the sqlite_stat[134] contents as
+                // INSERTs bracketed by `ANALYZE sqlite_schema;` markers,
+                // exactly like sqlite3's `.fullschema`.
+                let schema = try database.evaluate("""
+                    SELECT sql FROM (
+                      SELECT sql, type, name, rowid AS x FROM sqlite_schema UNION ALL
+                      SELECT sql, type, name, rowid FROM sqlite_temp_schema)
+                    WHERE type != 'meta' AND sql NOT NULL AND name NOT LIKE 'sqlite_%'
+                    ORDER BY x;
+                    """).first?.rows.compactMap { $0.first?.cliText } ?? []
+                for sql in schema { out(sql + ";\n") }
+                let hasStats = try !(database.evaluate(
+                    "SELECT 1 FROM sqlite_schema WHERE name GLOB 'sqlite_stat[134]' LIMIT 1;")
+                    .first?.rows.isEmpty ?? true)
+                guard hasStats else { out("/* No STAT tables available */\n"); return }
+                out("ANALYZE sqlite_schema;\n")
+                for statTable in ["sqlite_stat1", "sqlite_stat4"] where try tableExists(statTable) {
+                    let rows = try database.evaluate("SELECT * FROM \(statTable);").first?.rows ?? []
+                    for row in rows {
+                        out("INSERT INTO \(statTable) VALUES(\(row.map(\.sqlLiteral).joined(separator: ",")));\n")
+                    }
+                }
+                out("ANALYZE sqlite_schema;\n")
+            }
+
         case ".databases":
             introspect {
                 // sqlite3 prints: <name>: <"" if no file else path> <r/w|r/o>
@@ -395,7 +536,15 @@ final class Session {
                     // simple identifier, double-quoted otherwise — so both the
                     // read-back and the emitted INSERTs stay valid for any name.
                     let ident = SQLiteDatabase.quoteIdentifier(name)
-                    let rows = try database.evaluate("SELECT * FROM \(ident);").first?.rows ?? []
+                    // SELECT only the non-generated columns so the emitted
+                    // INSERT replays (sqlite3 omits VIRTUAL/STORED generated
+                    // columns — their values can't be inserted). The INSERT
+                    // itself stays column-list-free, exactly like sqlite3.
+                    let cols = try database.nonGeneratedColumns(of: name)
+                    let selectList = cols.isEmpty
+                        ? "*"
+                        : cols.map { SQLiteDatabase.quoteIdentifier($0) }.joined(separator: ",")
+                    let rows = try database.evaluate("SELECT \(selectList) FROM \(ident);").first?.rows ?? []
                     for row in rows {
                         out("INSERT INTO \(ident) VALUES(\(row.map(\.sqlLiteral).joined(separator: ",")));\n")
                     }
@@ -430,11 +579,17 @@ final class Session {
                 return
             }
             formatter.mode = mode
+            // The `.mode csv` dot-command uses CRLF row terminators; every
+            // other mode (and the `-csv` command-line flag) uses LF. This is
+            // sqlite3's one genuine flag-vs-dot-command divergence.
+            formatter.rowSeparator = mode == .csv ? "\r\n" : "\n"
             // `.mode insert [TABLE]` carries an optional destination table.
             if mode == .insert { formatter.insertTable = args.count > 1 ? args[1] : nil }
-            // The column-family modes turn headers on unless the user already
-            // pinned them (matching sqlite3's `.mode` dot-command).
-            if !headerExplicit, [.column, .markdown, .table, .box].contains(mode) {
+            // Only `.mode column` flips the headers *setting* on; box / table /
+            // markdown always *display* a header (their renderers don't gate on
+            // it) but leave the setting untouched, which `.show` reflects.
+            // Matches sqlite3's `.mode` dot-command.
+            if !headerExplicit, mode == .column {
                 formatter.showHeader = true
             }
 
@@ -455,6 +610,16 @@ final class Session {
 
         case ".nullvalue":
             formatter.nullValue = args.first ?? ""
+
+        case ".width", ".widths":
+            // `.width N1 N2 …` sets per-column display widths for the
+            // column-family modes (negative = right-justify, 0 = auto);
+            // `.width` with no args clears them. Non-numeric args read as 0,
+            // matching sqlite3's atoi-style parse.
+            formatter.widths = args.map { Int($0) ?? 0 }
+
+        case ".limit":
+            handleLimit(args)
 
         case ".echo":
             if let value = Self.onOff(args.first) { echo = value }
@@ -556,16 +721,23 @@ final class Session {
             // a mode change isn't tracked separately here — a rare edge.)
             let colsep: String, rowsep: String
             switch formatter.mode {
-            case .csv:   colsep = ","; rowsep = "\\r\\n"
+            // csv reports its actual row terminator (CRLF via `.mode csv`,
+            // LF via the `-csv` flag) — see formatter.rowSeparator.
+            case .csv:   colsep = ","; rowsep = showEscape(formatter.rowSeparator)
             case .tabs:  colsep = "\\t"; rowsep = "\\n"
             case .ascii: colsep = "\\037"; rowsep = "\\036"
             case .quote: colsep = ","; rowsep = "\\n"
             default:     colsep = showEscape(formatter.separator); rowsep = "\\n"
             }
-            // sqlite3 reports `tabs` as its underlying `list` mode. (The column
-            // family also appends `--wrap 60 --wordwrap off --noquote`; that
-            // suffix arrives with the column-wrapping feature — see `.width`.)
-            let modeField = formatter.mode == .tabs ? "list" : formatter.mode.rawValue
+            // sqlite3 reports `tabs` as its underlying `list` mode, and the
+            // column-family modes append their wrap/wordwrap/quote options.
+            // We don't expose those knobs yet, so they print sqlite3's
+            // defaults (--wrap 60 --wordwrap off --noquote).
+            let modeBase = formatter.mode == .tabs ? "list" : formatter.mode.rawValue
+            let columnFamily: Set<OutputMode> = [.column, .box, .table, .markdown]
+            let modeField = columnFamily.contains(formatter.mode)
+                ? "\(modeBase) --wrap 60 --wordwrap off --noquote"
+                : modeBase
             let fields: [(String, String)] = [
                 ("echo", echo ? "on" : "off"),
                 ("eqp", eqp ? "on" : "off"),
@@ -577,7 +749,8 @@ final class Session {
                 ("colseparator", "\"\(colsep)\""),
                 ("rowseparator", "\"\(rowsep)\""),
                 ("stats", "off"),
-                ("width", ""),
+                // sqlite3 prints each configured width followed by a space.
+                ("width", formatter.widths.map { "\($0) " }.joined()),
                 ("filename", filename),
             ]
             let body = fields.map { label, value in
@@ -595,7 +768,8 @@ final class Session {
                 let replacement = try SQLiteDatabase(.file(url.path))
                 database.close()
                 database = replacement
-                filename = url.path
+                if safeMode { database.enableSafeMode() }   // re-arm on the new connection
+                filename = path   // as-typed, matching sqlite3's `.show`
             } catch let error as SQLiteError {
                 err("Error: \(error.message)\n")
             } catch {
@@ -647,6 +821,53 @@ final class Session {
             err("Error: \(error.message)\n")
         } catch {
             err("Error: \(error)\n")
+        }
+    }
+
+    /// SQLite run-time limits in the order `.limit` lists them, paired with
+    /// their stable `SQLITE_LIMIT_*` codes (0…11, part of the public API).
+    static let limitTable: [(name: String, code: Int32)] = [
+        ("length", 0), ("sql_length", 1), ("column", 2), ("expr_depth", 3),
+        ("compound_select", 4), ("vdbe_op", 5), ("function_arg", 6),
+        ("attached", 7), ("like_pattern_length", 8), ("variable_number", 9),
+        ("trigger_depth", 10), ("worker_threads", 11),
+    ]
+
+    /// `.limit` — list every limit, show one, or set one and show the new
+    /// value. sqlite3 right-justifies the name in a 20-wide field.
+    private func handleLimit(_ args: [String]) {
+        func show(_ name: String, _ code: Int32) {
+            let value = database.limit(code)
+            out(String(repeating: " ", count: max(0, 20 - name.count)) + name + " \(value)\n")
+        }
+        guard let name = args.first else {
+            for (name, code) in Self.limitTable { show(name, code) }
+            return
+        }
+        guard let entry = Self.limitTable.first(where: { $0.name == name }) else {
+            err("unknown limit: \"\(name)\"\n")
+            return
+        }
+        if args.count >= 2, let newValue = Int32(args[1]) {
+            database.limit(entry.code, newValue: newValue)
+        }
+        show(entry.name, entry.code)
+    }
+
+    /// The `-safe` refusal message for a filesystem/shell dot-command, or
+    /// `nil` if it's allowed. `.open` of a real file gets its own message;
+    /// `:memory:` (or no argument) stays allowed.
+    static func safeModeBlock(_ command: String, _ args: [String]) -> String? {
+        switch command {
+        case ".open":
+            if let target = args.first, target != ":memory:", !target.isEmpty {
+                return "cannot open disk-based database files in safe mode"
+            }
+            return nil
+        case ".read", ".import", ".output", ".once", ".backup", ".restore":
+            return "cannot run \(command) in safe mode"
+        default:
+            return nil
         }
     }
 

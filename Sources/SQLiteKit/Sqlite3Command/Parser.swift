@@ -17,6 +17,7 @@ enum Parser {
         var interactive = false
         var echo = false
         var bail = false
+        var safe = false
         var initFile: String?
         var commands: [String] = []
         var special: Special = .none
@@ -63,6 +64,7 @@ enum Parser {
             case "-interactive": options.interactive = true
             case "-echo": options.echo = true
             case "-bail": options.bail = true
+            case "-safe": options.safe = true
             case "-separator": options.separator = try value(for: arg)
             case "-nullvalue": options.nullValue = try value(for: arg)
             case "-init": options.initFile = try value(for: arg)
@@ -99,7 +101,8 @@ enum Parser {
       -echo              print each statement before running it
       -bail              stop after the first error
       -batch             non-interactive mode
-      -interactive       interactive mode
+      -interactive       interactive mode (prompts; SQL run line-by-line)
+      -safe              refuse dot-commands that touch the filesystem/shell
 
       -list              values separated by .separator (default)
       -csv               comma-separated values
@@ -127,7 +130,10 @@ enum Parser {
       .headers on|off    show or hide headers
       .separator SEP     set the -list separator
       .nullvalue STR     set the NULL placeholder
+      .width N1 N2 ...   set column widths (negative right-justifies, 0 auto)
+      .limit [NAME [VAL]]  show or set run-time limits
       .dump [TABLE]      dump the database (or one table) as SQL
+      .fullschema        show the schema plus the ANALYZE (stat) tables
       .echo on|off       echo each statement before running it
       .bail on|off       stop after an error
       .changes on|off    report changed-row counts after each statement

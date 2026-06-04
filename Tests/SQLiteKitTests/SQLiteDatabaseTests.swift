@@ -119,14 +119,15 @@ import Testing
     }
 
     @Test func csvMode() {
-        // SQLite's CSV mode uses CRLF row terminators, including a trailing one.
-        let formatter = ResultFormatter(mode: .csv, showHeader: true)
+        // The `.mode csv` dot-command uses CRLF row terminators (set via
+        // rowSeparator); the `-csv` flag uses LF — see csvFlagUsesLF.
+        let formatter = ResultFormatter(mode: .csv, showHeader: true, rowSeparator: "\r\n")
         #expect(formatter.render(sample) == "id,name\r\n1,alice\r\n2,\r\n")
     }
 
     @Test func csvQuoting() {
         let set = ResultSet(columns: ["x"], rows: [[.text("a,b")], [.text("he\"llo")]])
-        let formatter = ResultFormatter(mode: .csv)
+        let formatter = ResultFormatter(mode: .csv, rowSeparator: "\r\n")
         #expect(formatter.render(set) == "\"a,b\"\r\n\"he\"\"llo\"\r\n")
     }
 
@@ -232,5 +233,33 @@ import Testing
         // sqlite3 right-justifies the column name in a field at least 5 wide.
         let set = ResultSet(columns: ["a"], rows: [[.integer(1)]])
         #expect(ResultFormatter(mode: .line).render(set) == "    a = 1\n")
+    }
+
+    // MARK: - Parity batch (issue #43)
+
+    @Test func realLiteralMatchesSqliteDtoa() {
+        // Full-precision round-trip rendering via the engine's %!.20g.
+        #expect(SQLiteValue.realLiteral(0.1 + 0.2) == "0.3000000000000000445")
+        #expect(SQLiteValue.realLiteral(3.14) == "3.140000000000000124")
+        #expect(SQLiteValue.realLiteral(1e20) == "1.0e+20")
+    }
+
+    @Test func nonGeneratedColumnsExcludesGenerated() throws {
+        let db = try SQLiteDatabase.inMemory()
+        try db.evaluate("CREATE TABLE t(a INT, g INT GENERATED ALWAYS AS (a+1) VIRTUAL, b TEXT);")
+        #expect(try db.nonGeneratedColumns(of: "t") == ["a", "b"])
+    }
+
+    @Test func columnModeWrapsLongValuesAtSixty() {
+        let set = ResultSet(columns: ["s"], rows: [[.text(String(repeating: "x", count: 65))]])
+        let lines = ResultFormatter(mode: .column, showHeader: false).render(set)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+        #expect(String(lines[0]) == String(repeating: "x", count: 60))   // wrapped at the 60-col cap
+    }
+
+    @Test func widthRightJustifiesNegative() {
+        let set = ResultSet(columns: ["x"], rows: [[.text("ab")]])
+        let formatter = ResultFormatter(mode: .column, showHeader: false, widths: [-5])
+        #expect(formatter.render(set) == "   ab\n")
     }
 }

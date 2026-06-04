@@ -1035,10 +1035,24 @@ let package = Package(
         // The Linux/Android link libs match the (commented) shell target
         // in the CSQLite package; the Apple SDKs provide these via
         // libSystem, so they're gated to non-Apple platforms.
+        // CSQLiteShim — typed C wrappers for SQLite's variadic printf
+        // (`sqlite3_mprintf`), which Swift can't call directly. Gives
+        // SQLiteKit byte-exact access to the engine's `%!.20g` float
+        // formatting for round-trip output (.dump / quote / insert / JSON).
+        // Mirrors the CLibgit2Shim pattern.
+        .target(
+            name: "CSQLiteShim",
+            dependencies: [
+                .product(name: "SQLiteSwiftCSQLite", package: "CSQLite"),
+            ],
+            path: "Sources/CSQLiteShim",
+            publicHeadersPath: "include"
+        ),
         .target(
             name: "SQLiteKit",
             dependencies: [
                 .product(name: "SQLiteSwiftCSQLite", package: "CSQLite"),
+                "CSQLiteShim",
             ],
             path: "Sources/SQLiteKit/Lib",
             linkerSettings: [

@@ -13,18 +13,36 @@ public struct ResultFormatter: Sendable {
     public var showHeader: Bool
     public var separator: String
     public var nullValue: String
+    /// CSV row terminator. sqlite3 distinguishes the `-csv` command-line
+    /// flag (LF, the default here) from the `.mode csv` dot-command (CRLF,
+    /// which the dispatcher sets explicitly) — same renderer, different
+    /// stored row separator.
+    public var rowSeparator: String
+    /// Per-column `.width` overrides for the column-family modes (column /
+    /// table / box / markdown). Signed: a negative width right-justifies;
+    /// `0` or an absent entry auto-sizes. Empty until `.width` is used.
+    public var widths: [Int]
     /// Table name for `insert` mode; `nil` uses sqlite3's quoted default.
     public var insertTable: String?
+
+    /// sqlite3's default column-family wrap width (`--wrap 60`): an
+    /// auto-sized column never grows past this, wrapping longer values into
+    /// continuation rows instead.
+    static let defaultWrap = 60
 
     public init(mode: OutputMode = .list,
                 showHeader: Bool = false,
                 separator: String = "|",
                 nullValue: String = "",
+                rowSeparator: String = "\n",
+                widths: [Int] = [],
                 insertTable: String? = nil) {
         self.mode = mode
         self.showHeader = showHeader
         self.separator = separator
         self.nullValue = nullValue
+        self.rowSeparator = rowSeparator
+        self.widths = widths
         self.insertTable = insertTable
     }
 
@@ -65,7 +83,7 @@ public struct ResultFormatter: Sendable {
         for row in set.rows {
             rows.append(row.map { csvField(text($0)) }.joined(separator: ","))
         }
-        return rows.map { $0 + "\r\n" }.joined()
+        return rows.map { $0 + rowSeparator }.joined()
     }
 
     private func csvField(_ s: String) -> String {
@@ -93,57 +111,146 @@ public struct ResultFormatter: Sendable {
         return blocks.isEmpty ? "" : blocks.joined(separator: "\n\n") + "\n"
     }
 
-    // MARK: column
+    // MARK: column / table / box / markdown (width-aware + wrapping)
+
+    /// The wrapped, width-resolved layout shared by the four column-family
+    /// modes — mirrors sqlite3's `exec_prepared_stmt_columnar`: each value is
+    /// wrapped to its column's width into one or more physical rows, headers
+    /// are truncated to the width, and a column's final width is the widest
+    /// line it holds (never past the explicit `.width` / the `--wrap` cap).
+    private struct Columnar {
+        var header: [String]        // header cells, truncated to width
+        var rows: [[String]]        // physical (post-wrap) rows
+        var logicalEnd: [Bool]      // per physical row: last line of its logical row
+        var width: [Int]            // resolved render width per column
+        var rightJustify: [Bool]    // per column (negative `.width`)
+        var multiLine: Bool         // any value wrapped to >1 line
+    }
+
+    private func columnarLayout(_ set: ResultSet) -> Columnar {
+        let n = set.columns.count
+        func explicit(_ i: Int) -> Int { i < widths.count ? widths[i] : 0 }
+        func wrapWidth(_ i: Int) -> Int { let w = explicit(i); return w != 0 ? abs(w) : Self.defaultWrap }
+        // Headers truncate (first wrapped line only); data wraps fully.
+        let header = (0..<n).map { wrapCell(set.columns[$0], width: wrapWidth($0)).first ?? "" }
+        var rows: [[String]] = []
+        var logicalEnd: [Bool] = []
+        var multiLine = false
+        for row in set.rows {
+            let cells = (0..<n).map { wrapCell(text(row[$0]), width: wrapWidth($0)) }
+            let lineCount = cells.map(\.count).max() ?? 1
+            if lineCount > 1 { multiLine = true }
+            for li in 0..<lineCount {
+                rows.append((0..<n).map { li < cells[$0].count ? cells[$0][li] : "" })
+                logicalEnd.append(li == lineCount - 1)
+            }
+        }
+        var width = (0..<n).map { abs(explicit($0)) }
+        for line in [header] + rows {
+            for i in 0..<n where dw(line[i]) > width[i] { width[i] = dw(line[i]) }
+        }
+        return Columnar(header: header, rows: rows, logicalEnd: logicalEnd,
+                        width: width, rightJustify: (0..<n).map { explicit($0) < 0 },
+                        multiLine: multiLine)
+    }
+
+    /// Splits `s` into display lines no wider than `width`, the way sqlite3's
+    /// `translateForDisplayAndDup` does on its common path: hard-break at
+    /// embedded newlines, expand tabs to 8-column stops, character-wrap
+    /// (word-wrap is off by default and not yet exposed). `width <= 0` means
+    /// no limit.
+    private func wrapCell(_ s: String, width: Int) -> [String] {
+        let limit = width <= 0 ? Int.max : width
+        var lines: [String] = []
+        var current = ""
+        var col = 0
+        let chars = Array(s)
+        var i = 0
+        while i < chars.count {
+            let c = chars[i]
+            if c == "\n" { lines.append(current); current = ""; col = 0; i += 1; continue }
+            if c == "\r", i + 1 < chars.count, chars[i + 1] == "\n" {
+                lines.append(current); current = ""; col = 0; i += 2; continue
+            }
+            if c == "\t" {
+                repeat { current.append(" "); col += 1 } while col % 8 != 0 && col < limit
+                i += 1
+                if col >= limit { lines.append(current); current = ""; col = 0 }
+                continue
+            }
+            if col >= limit { lines.append(current); current = ""; col = 0 }
+            current.append(c); col += 1; i += 1
+        }
+        lines.append(current)
+        return lines
+    }
 
     private func renderColumn(_ set: ResultSet) -> String {
-        let widths = columnWidths(set)
+        let n = set.columns.count
+        guard n > 0 else { return "" }
+        let layout = columnarLayout(set)
+        func cell(_ s: String, _ i: Int) -> String {
+            justify(s, width: layout.width[i], right: layout.rightJustify[i])
+        }
         var lines: [String] = []
         if showHeader {
-            lines.append(zip(set.columns, widths).map { pad($0, $1) }.joined(separator: "  "))
-            lines.append(widths.map { String(repeating: "-", count: $0) }.joined(separator: "  "))
+            lines.append((0..<n).map { cell(layout.header[$0], $0) }.joined(separator: "  "))
+            lines.append(layout.width.map { String(repeating: "-", count: $0) }.joined(separator: "  "))
         }
-        for row in set.rows {
-            lines.append(zip(row.map(text), widths).map { pad($0, $1) }.joined(separator: "  "))
+        for (idx, row) in layout.rows.enumerated() {
+            lines.append((0..<n).map { cell(row[$0], $0) }.joined(separator: "  "))
+            // sqlite3 separates logical rows with a blank line once any value
+            // in the result wrapped to multiple physical lines.
+            if layout.multiLine, layout.logicalEnd[idx], idx != layout.rows.count - 1 {
+                lines.append("")
+            }
         }
         return lines.isEmpty ? "" : lines.joined(separator: "\n") + "\n"
     }
 
-    // MARK: markdown / table / box (column-width based)
-
     private func renderMarkdown(_ set: ResultSet) -> String {
-        let widths = columnWidths(set)
-        func rowLine(_ cells: [String], _ justify: (String, Int) -> String) -> String {
-            "|" + zip(cells, widths).map { " \(justify($0, $1)) " }.joined(separator: "|") + "|"
+        let n = set.columns.count
+        guard n > 0 else { return "" }
+        let layout = columnarLayout(set)
+        func dataRow(_ cells: [String]) -> String {
+            "|" + (0..<n).map { " \(justify(cells[$0], width: layout.width[$0], right: layout.rightJustify[$0])) " }
+                .joined(separator: "|") + "|"
         }
-        var lines: [String] = []
-        if showHeader {
-            lines.append(rowLine(set.columns, center))   // sqlite3 centers headers
-            lines.append("|" + widths.map { String(repeating: "-", count: $0 + 2) }.joined(separator: "|") + "|")
-        }
-        for row in set.rows { lines.append(rowLine(row.map(text), pad)) }
-        return lines.isEmpty ? "" : lines.joined(separator: "\n") + "\n"
+        // The bordered modes always print the (centered) header — sqlite3
+        // doesn't gate it on `.headers`.
+        var lines = ["|" + (0..<n).map { " \(center(layout.header[$0], layout.width[$0])) " }.joined(separator: "|") + "|"]
+        lines.append("|" + layout.width.map { String(repeating: "-", count: $0 + 2) }.joined(separator: "|") + "|")
+        for row in layout.rows { lines.append(dataRow(row)) }
+        return lines.joined(separator: "\n") + "\n"
     }
 
     private func renderBordered(_ set: ResultSet, ascii: Bool) -> String {
-        let widths = columnWidths(set)
-        let glyphs = ascii
+        let n = set.columns.count
+        guard n > 0 else { return "" }
+        let layout = columnarLayout(set)
+        let g = ascii
             ? (tl: "+", tm: "+", tr: "+", ml: "+", mm: "+", mr: "+",
                bl: "+", bm: "+", br: "+", h: "-", v: "|")
             : (tl: "┌", tm: "┬", tr: "┐", ml: "├", mm: "┼", mr: "┤",
                bl: "└", bm: "┴", br: "┘", h: "─", v: "│")
         func border(_ l: String, _ m: String, _ r: String) -> String {
-            l + widths.map { String(repeating: glyphs.h, count: $0 + 2) }.joined(separator: m) + r
+            l + layout.width.map { String(repeating: g.h, count: $0 + 2) }.joined(separator: m) + r
         }
-        func rowLine(_ cells: [String], _ justify: (String, Int) -> String) -> String {
-            glyphs.v + zip(cells, widths).map { " \(justify($0, $1)) " }.joined(separator: glyphs.v) + glyphs.v
+        func dataRow(_ cells: [String]) -> String {
+            g.v + (0..<n).map { " \(justify(cells[$0], width: layout.width[$0], right: layout.rightJustify[$0])) " }
+                .joined(separator: g.v) + g.v
         }
-        var lines = [border(glyphs.tl, glyphs.tm, glyphs.tr)]
-        if showHeader {
-            lines.append(rowLine(set.columns, center))   // sqlite3 centers headers
-            lines.append(border(glyphs.ml, glyphs.mm, glyphs.mr))
+        var lines = [border(g.tl, g.tm, g.tr)]
+        lines.append(g.v + (0..<n).map { " \(center(layout.header[$0], layout.width[$0])) " }.joined(separator: g.v) + g.v)
+        lines.append(border(g.ml, g.mm, g.mr))
+        for (idx, row) in layout.rows.enumerated() {
+            lines.append(dataRow(row))
+            // A wrapped logical row is closed off by a mid-rule before the next.
+            if layout.multiLine, layout.logicalEnd[idx], idx != layout.rows.count - 1 {
+                lines.append(border(g.ml, g.mm, g.mr))
+            }
         }
-        for row in set.rows { lines.append(rowLine(row.map(text), pad)) }
-        lines.append(border(glyphs.bl, glyphs.bm, glyphs.br))
+        lines.append(border(g.bl, g.bm, g.br))
         return lines.joined(separator: "\n") + "\n"
     }
 
@@ -190,11 +297,9 @@ public struct ResultFormatter: Sendable {
         case .null: return "null"
         case .integer(let i): return String(i)
         // sqlite3's JSON mode prints reals with its own full-precision dtoa
-        // (e.g. 3.14 → 3.140000000000000124). We emit the shortest
-        // round-tripping form instead — equivalent value, cleaner text,
-        // since reproducing sqlite's dtoa byte-for-byte isn't possible via
-        // the platform formatter.
-        case .real(let d): return String(d)
+        // (e.g. 3.14 → 3.140000000000000124), via the same `%!.20g` as
+        // .dump/quote/insert. We match it byte-for-byte through the engine.
+        case .real(let d): return SQLiteValue.realLiteral(d)
         case .text(let s): return jsonString(s)
         case .blob(let b): return jsonBlob(b)
         }
@@ -246,18 +351,20 @@ public struct ResultFormatter: Sendable {
 
     // MARK: shared width helpers
 
-    private func columnWidths(_ set: ResultSet) -> [Int] {
-        var widths = set.columns.map(\.count)
-        for row in set.rows {
-            for (i, cell) in row.map(text).enumerated() where i < widths.count {
-                widths[i] = max(widths[i], cell.count)
-            }
-        }
-        return widths
+    /// Display width of `s` (grapheme count — exact for ASCII / Latin; wide
+    /// CJK columns are a deferred edge, like the rest of the formatter).
+    private func dw(_ s: String) -> Int { s.count }
+
+    private func justify(_ s: String, width: Int, right: Bool) -> String {
+        right ? padLeft(s, width) : pad(s, width)
     }
 
     private func pad(_ s: String, _ width: Int) -> String {
         s + String(repeating: " ", count: max(0, width - s.count))
+    }
+
+    private func padLeft(_ s: String, _ width: Int) -> String {
+        String(repeating: " ", count: max(0, width - s.count)) + s
     }
 
     /// Centers `s` in `width`, putting any odd extra space on the right —

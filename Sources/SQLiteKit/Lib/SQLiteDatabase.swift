@@ -151,6 +151,122 @@ public final class SQLiteDatabase {
         sqlite3_db_readonly(handle, name) == 1
     }
 
+    /// Reads (or, when `newValue >= 0`, sets and returns the new effective
+    /// value of) a run-time limit — backing the `.limit` dot-command.
+    /// `code` is a `SQLITE_LIMIT_*` constant.
+    @discardableResult
+    public func limit(_ code: Int32, newValue: Int32 = -1) -> Int32 {
+        let prior = sqlite3_limit(handle, code, newValue)
+        // sqlite3_limit returns the PRIOR value; re-read to report the new
+        // (possibly clamped) one after a set.
+        return newValue < 0 ? prior : sqlite3_limit(handle, code, -1)
+    }
+
+    // MARK: -safe authorizer
+
+    /// When the `-safe`-mode authorizer denies an operation, the shell's
+    /// refusal message for it (e.g. `cannot run ATTACH in safe mode`). The
+    /// CLI reads and clears this after a failed statement so it reports
+    /// sqlite3's exact safe-mode error rather than the engine's
+    /// "not authorized".
+    public private(set) var safeModeViolation: String?
+
+    public func clearSafeModeViolation() { safeModeViolation = nil }
+
+    /// Filesystem-reaching SQL functions `-safe` mode forbids. `load_extension`
+    /// is the one present in the amalgamation; `readfile` / `writefile` /
+    /// `edit` / `fsdir` / `zipfile` are CLI-shell-only (absent here, so they
+    /// already fail as "no such function") — listed for forward-compatibility.
+    private static let safeModeProhibitedFunctions: Set<String> = [
+        "load_extension", "readfile", "writefile", "edit", "fsdir", "zipfile",
+    ]
+
+    /// Scratch buffer for ``attachTargets(in:)`` — the recording authorizer
+    /// appends ATTACH filenames here.
+    private var collectedAttachPaths: [String] = []
+
+    /// The file paths the `ATTACH` statements in `sql` would open, found by
+    /// preparing each statement (never stepping it, so nothing runs and no
+    /// file is opened) under a recording authorizer. The CLI gates these
+    /// through ShellKit's sandbox before executing the SQL for real — the
+    /// same `resolve` + `authorize` path the database file / `.read` /
+    /// `.open` already take, so ATTACH can't reach outside the sandbox.
+    ///
+    /// Literal paths (the overwhelmingly common form) are captured regardless
+    /// of statement order. An ATTACH whose path *expression* only resolves
+    /// after a prior statement executes isn't pre-seen — closing that needs a
+    /// VFS-level interceptor (a tracked follow-up), not this prepare pass.
+    public func attachTargets(in sql: String) -> [String] {
+        collectedAttachPaths = []
+        let ctx = Unmanaged.passUnretained(self).toOpaque()
+        sqlite3_set_authorizer(handle, { ctx, op, filename, _, _, _ in
+            if op == SQLITE_ATTACH, let ctx, let filename {
+                Unmanaged<SQLiteDatabase>.fromOpaque(ctx).takeUnretainedValue()
+                    .collectedAttachPaths.append(String(cString: filename))
+            }
+            return SQLITE_OK
+        }, ctx)
+        defer { sqlite3_set_authorizer(handle, nil, nil) }
+        sql.withCString { start in
+            let end = start + sql.utf8.count
+            var cursor: UnsafePointer<CChar>? = start
+            while let head = cursor, head < end {
+                var stmt: OpaquePointer?
+                var tail: UnsafePointer<CChar>?
+                // Prepare-only: the authorizer observes ATTACHes without any
+                // statement executing. Stop at the first prepare error (a
+                // later statement may depend on an earlier one running).
+                guard sqlite3_prepare_v2(handle, head, -1, &stmt, &tail) == SQLITE_OK else { break }
+                if let stmt { sqlite3_finalize(stmt) }
+                guard let tail, tail != cursor else { break }
+                cursor = tail
+            }
+        }
+        return collectedAttachPaths
+    }
+
+    /// Installs sqlite3's `-safe` SQL-level authorizer: deny `ATTACH` (any
+    /// target — it can create a disk file) and the filesystem-reaching
+    /// functions, recording the matching refusal message. `DETACH` and every
+    /// other operation stay allowed, matching the real shell.
+    public func enableSafeMode() {
+        let context = Unmanaged.passUnretained(self).toOpaque()
+        sqlite3_set_authorizer(handle, { ctx, op, _, fnName, _, _ in
+            guard let ctx else { return SQLITE_OK }
+            let db = Unmanaged<SQLiteDatabase>.fromOpaque(ctx).takeUnretainedValue()
+            switch op {
+            case SQLITE_ATTACH:
+                db.safeModeViolation = "cannot run ATTACH in safe mode"
+                return SQLITE_DENY
+            case SQLITE_FUNCTION:
+                guard let fnName else { return SQLITE_OK }
+                let name = String(cString: fnName)
+                if SQLiteDatabase.safeModeProhibitedFunctions.contains(name) {
+                    db.safeModeViolation = "cannot use the \(name)() function in safe mode"
+                    return SQLITE_DENY
+                }
+                return SQLITE_OK
+            default:
+                return SQLITE_OK
+            }
+        }, context)
+    }
+
+    /// The names of `table`'s real (non-generated) columns in declared
+    /// order. `.dump` must SELECT only these so VIRTUAL / STORED generated
+    /// columns are excluded from the emitted `INSERT` — matching sqlite3,
+    /// whose dump emits the bare `INSERT INTO t VALUES(…)` with only the
+    /// storable values (a dump that included generated values can't replay).
+    /// Reads `pragma_table_xinfo`'s `hidden` flag: 2 = VIRTUAL generated,
+    /// 3 = STORED generated (0 / 1 = ordinary / hidden-but-storable).
+    public func nonGeneratedColumns(of table: String) throws -> [String] {
+        let sql = """
+            SELECT name FROM pragma_table_xinfo('\(Self.quote(table))')
+            WHERE hidden NOT IN (2, 3) ORDER BY cid;
+            """
+        return try evaluate(sql).first?.rows.compactMap { $0.first?.text } ?? []
+    }
+
     /// Copies this database into `destination` using SQLite's online backup
     /// API — backing the CLI's `.backup` / `.restore`.
     public func backup(to destination: SQLiteDatabase,
