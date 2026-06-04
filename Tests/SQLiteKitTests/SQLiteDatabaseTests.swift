@@ -17,6 +17,19 @@ import Testing
         #expect(sets[0].rows == [[.integer(1), .text("apple"), .integer(4)]])
     }
 
+    @Test func quoteIdentifierMatchesSqlite() {
+        // Bare for simple identifiers; double-quoted (embedded " doubled) for
+        // names with special characters or that collide with a SQL keyword.
+        #expect(SQLiteDatabase.quoteIdentifier("foo") == "foo")
+        #expect(SQLiteDatabase.quoteIdentifier("My_Tab2") == "My_Tab2")
+        #expect(SQLiteDatabase.quoteIdentifier("order") == "\"order\"")          // keyword
+        #expect(SQLiteDatabase.quoteIdentifier("ORDER") == "\"ORDER\"")          // keyword, case-insensitive
+        #expect(SQLiteDatabase.quoteIdentifier("my table") == "\"my table\"")    // space
+        #expect(SQLiteDatabase.quoteIdentifier("weird-name") == "\"weird-name\"") // dash
+        #expect(SQLiteDatabase.quoteIdentifier("a\"b") == "\"a\"\"b\"")          // embedded quote doubled
+        #expect(SQLiteDatabase.quoteIdentifier("1abc") == "\"1abc\"")            // leading digit
+    }
+
     @Test func valueTypeMapping() throws {
         let db = try SQLiteDatabase.inMemory()
         let row = try db.evaluate("SELECT 1, 2.5, 'hi', NULL, x'00ff';")[0].rows[0]

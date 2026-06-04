@@ -177,6 +177,29 @@ public final class SQLiteDatabase {
         s.replacingOccurrences(of: "'", with: "''")
     }
 
+    /// Quotes a SQL identifier the way the `sqlite3` shell does in `.dump`:
+    /// a simple identifier — an ASCII letter or `_` followed by letters,
+    /// digits, or `_`, and not a SQL keyword — is returned bare; anything
+    /// else is wrapped in double quotes with embedded `"` doubled. This keeps
+    /// emitted DDL/DML valid for any table name (e.g. `order`, `my table`).
+    public static func quoteIdentifier(_ name: String) -> String {
+        guard identifierNeedsQuoting(name) else { return name }
+        return "\"" + name.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+    }
+
+    private static func identifierNeedsQuoting(_ name: String) -> Bool {
+        func isAlpha(_ v: UInt32) -> Bool {
+            (v >= 65 && v <= 90) || (v >= 97 && v <= 122) || v == 95   // A–Z a–z _
+        }
+        func isAlnum(_ v: UInt32) -> Bool { isAlpha(v) || (v >= 48 && v <= 57) }  // + 0–9
+        let scalars = name.unicodeScalars
+        guard let first = scalars.first, isAlpha(first.value) else { return true }
+        guard scalars.dropFirst().allSatisfy({ isAlnum($0.value) }) else { return true }
+        // A lexically-simple identifier that collides with a SQL keyword
+        // (e.g. `order`) still needs quoting; ask the engine's own keyword set.
+        return name.withCString { sqlite3_keyword_check($0, Int32(name.utf8.count)) != 0 }
+    }
+
     // MARK: Internals
 
     private func lastError(phase: SQLiteError.Phase) -> SQLiteError {

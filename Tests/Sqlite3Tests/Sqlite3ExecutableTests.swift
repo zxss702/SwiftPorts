@@ -322,6 +322,84 @@ import Testing
         #expect(r.exit == 1)
         #expect(r.stderr.contains("unknown option"))
     }
+
+    // MARK: .dump fidelity + output parity (issue #43)
+
+    @Test func dumpQuotesSpaceTableName() async throws {
+        // A table name with a space must be double-quoted in the emitted
+        // INSERT (the old code used the raw name → invalid, un-replayable SQL).
+        let r = try await run([":memory:"], input: """
+        CREATE TABLE "my table"(x);
+        INSERT INTO "my table" VALUES(1);
+        .dump
+        """)
+        #expect(r.exit == 0)
+        #expect(r.stdout.contains("INSERT INTO \"my table\" VALUES(1);"))
+    }
+
+    @Test func dumpQuotesKeywordTableName() async throws {
+        // `order` is a SQL keyword, so the INSERT must quote it — verified
+        // against the engine's own sqlite3_keyword_check, case-insensitively.
+        let r = try await run([":memory:"], input: """
+        CREATE TABLE "order"(x);
+        INSERT INTO "order" VALUES(1);
+        .dump
+        """)
+        #expect(r.exit == 0)
+        #expect(r.stdout.contains("INSERT INTO \"order\" VALUES(1);"))
+    }
+
+    @Test func dumpPreservesAutoincrementSequence() async throws {
+        // sqlite3's .dump re-emits the AUTOINCREMENT high-water mark as a
+        // sqlite_sequence INSERT — with no CREATE (the table is implicit) and,
+        // for `.dump` specifically, no `DELETE FROM sqlite_sequence` (that is
+        // `.recover`'s behavior; cf. shell.c dump_callback). We match it
+        // byte-for-byte: sqlite3's own dump doesn't dedupe the row the table's
+        // own inserts re-create on replay, so this is parity, not a "perfect"
+        // counter reload — see PR #46 review.
+        let r = try await run([":memory:"], input: """
+        CREATE TABLE t(id INTEGER PRIMARY KEY AUTOINCREMENT, v);
+        INSERT INTO t(v) VALUES('a'),('b'),('c');
+        DELETE FROM t WHERE id = 3;
+        .dump
+        """)
+        #expect(r.exit == 0)
+        #expect(r.stdout.contains("INSERT INTO sqlite_sequence VALUES('t',3);"))
+        #expect(!r.stdout.contains("CREATE TABLE sqlite_sequence"))
+        #expect(!r.stdout.contains("DELETE FROM sqlite_sequence"))  // .dump ≠ .recover
+    }
+
+    @Test func dumpSingleTableOmitsSequence() async throws {
+        // A single-table dump omits sqlite_sequence (matching sqlite3).
+        let r = try await run([":memory:"], input: """
+        CREATE TABLE t(id INTEGER PRIMARY KEY AUTOINCREMENT, v);
+        INSERT INTO t(v) VALUES('a');
+        .dump t
+        """)
+        #expect(r.exit == 0)
+        #expect(!r.stdout.contains("sqlite_sequence"))
+    }
+
+    @Test func jsonPreservesDuplicateAndOrderedColumns() async throws {
+        // Hand-rolled JSON keeps column order and duplicate names (a dict
+        // would reorder/collapse them) — matching sqlite3's -json.
+        let r = try await run(["-json", ":memory:", "SELECT 2 AS b, 1 AS a, 3 AS a;"])
+        #expect(r.stdout == "[{\"b\":2,\"a\":1,\"a\":3}]\n")
+    }
+
+    @Test func dotCommandInsideStringLiteralIsData() async throws {
+        // A line beginning with "." inside an open string literal is data,
+        // not a dot-command: it must not run `.tables`.
+        let r = try await run([":memory:"], input: """
+        CREATE TABLE marker(x);
+        SELECT '
+        .tables
+        ' AS v;
+        """)
+        #expect(r.exit == 0)
+        #expect(r.stdout.contains(".tables"))   // preserved as data
+        #expect(!r.stdout.contains("marker"))   // .tables never executed
+    }
 }
 
 #endif  // !os(Android)

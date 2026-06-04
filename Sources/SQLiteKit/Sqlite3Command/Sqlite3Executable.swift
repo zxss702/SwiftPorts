@@ -361,10 +361,25 @@ final class Session {
                 for t in tables {
                     guard case .text(let name) = t[0], case .text(let createSQL) = t[1] else { continue }
                     out(createSQL + ";\n")
-                    let ident = name.replacingOccurrences(of: "\"", with: "\"\"")
-                    let rows = try database.evaluate("SELECT * FROM \"\(ident)\";").first?.rows ?? []
+                    // Quote the table name the way sqlite3 does — bare for a
+                    // simple identifier, double-quoted otherwise — so both the
+                    // read-back and the emitted INSERTs stay valid for any name.
+                    let ident = SQLiteDatabase.quoteIdentifier(name)
+                    let rows = try database.evaluate("SELECT * FROM \(ident);").first?.rows ?? []
                     for row in rows {
-                        out("INSERT INTO \(name) VALUES(\(row.map(\.sqlLiteral).joined(separator: ",")));\n")
+                        out("INSERT INTO \(ident) VALUES(\(row.map(\.sqlLiteral).joined(separator: ",")));\n")
+                    }
+                }
+                // AUTOINCREMENT high-water marks live in the internal
+                // sqlite_sequence table. sqlite3 re-emits its rows (no CREATE —
+                // it is created implicitly by the first AUTOINCREMENT table)
+                // after all table data and before views/triggers/indexes, and
+                // only for a full dump.
+                if only == nil, try tableExists("sqlite_sequence") {
+                    let seq = try database.evaluate(
+                        "SELECT name, seq FROM sqlite_sequence ORDER BY rowid;").first?.rows ?? []
+                    for row in seq {
+                        out("INSERT INTO sqlite_sequence VALUES(\(row.map(\.sqlLiteral).joined(separator: ",")));\n")
                     }
                 }
                 // Then views + triggers, then indexes last (sqlite3's order).
