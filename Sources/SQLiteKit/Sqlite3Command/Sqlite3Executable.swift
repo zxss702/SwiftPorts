@@ -55,6 +55,9 @@ public enum Sqlite3Executable {
             stderr.write("sqlite3: Error: \(error.message)\n")
             return 1
         }
+        // -safe also gates SQL-level filesystem access (ATTACH / load_extension)
+        // via an authorizer, not just the file-touching dot-commands.
+        if options.safe { database.enableSafeMode() }
 
         // None of the columnar command-line flags flip the headers setting:
         // -box/-table/-markdown render a header regardless of it, and -column
@@ -297,6 +300,16 @@ final class Session {
             if redirect?.once == true { finishOutput() }
             return true
         } catch let error as SQLiteError {
+            // A `-safe` authorizer denial surfaces as a generic SQLITE_AUTH
+            // error; replace it with sqlite3's safe-mode message and halt
+            // (line 0 for a command-line argument).
+            if let violation = database.safeModeViolation {
+                database.clearSafeModeViolation()
+                err("line \(context == .inline ? 0 : startLine): \(violation)\n")
+                exitCode = 1
+                shouldQuit = true
+                return false
+            }
             report(error, sql: sql, startLine: startLine, context: context)
             return false
         } catch {
@@ -738,6 +751,7 @@ final class Session {
                 let replacement = try SQLiteDatabase(.file(url.path))
                 database.close()
                 database = replacement
+                if safeMode { database.enableSafeMode() }   // re-arm on the new connection
                 filename = path   // as-typed, matching sqlite3's `.show`
             } catch let error as SQLiteError {
                 err("Error: \(error.message)\n")

@@ -162,6 +162,52 @@ public final class SQLiteDatabase {
         return newValue < 0 ? prior : sqlite3_limit(handle, code, -1)
     }
 
+    // MARK: -safe authorizer
+
+    /// When the `-safe`-mode authorizer denies an operation, the shell's
+    /// refusal message for it (e.g. `cannot run ATTACH in safe mode`). The
+    /// CLI reads and clears this after a failed statement so it reports
+    /// sqlite3's exact safe-mode error rather than the engine's
+    /// "not authorized".
+    public private(set) var safeModeViolation: String?
+
+    public func clearSafeModeViolation() { safeModeViolation = nil }
+
+    /// Filesystem-reaching SQL functions `-safe` mode forbids. `load_extension`
+    /// is the one present in the amalgamation; `readfile` / `writefile` /
+    /// `edit` / `fsdir` / `zipfile` are CLI-shell-only (absent here, so they
+    /// already fail as "no such function") — listed for forward-compatibility.
+    private static let safeModeProhibitedFunctions: Set<String> = [
+        "load_extension", "readfile", "writefile", "edit", "fsdir", "zipfile",
+    ]
+
+    /// Installs sqlite3's `-safe` SQL-level authorizer: deny `ATTACH` (any
+    /// target — it can create a disk file) and the filesystem-reaching
+    /// functions, recording the matching refusal message. `DETACH` and every
+    /// other operation stay allowed, matching the real shell.
+    public func enableSafeMode() {
+        let context = Unmanaged.passUnretained(self).toOpaque()
+        sqlite3_set_authorizer(handle, { ctx, op, _, fnName, _, _ in
+            guard let ctx else { return SQLITE_OK }
+            let db = Unmanaged<SQLiteDatabase>.fromOpaque(ctx).takeUnretainedValue()
+            switch op {
+            case SQLITE_ATTACH:
+                db.safeModeViolation = "cannot run ATTACH in safe mode"
+                return SQLITE_DENY
+            case SQLITE_FUNCTION:
+                guard let fnName else { return SQLITE_OK }
+                let name = String(cString: fnName)
+                if SQLiteDatabase.safeModeProhibitedFunctions.contains(name) {
+                    db.safeModeViolation = "cannot use the \(name)() function in safe mode"
+                    return SQLITE_DENY
+                }
+                return SQLITE_OK
+            default:
+                return SQLITE_OK
+            }
+        }, context)
+    }
+
     /// The names of `table`'s real (non-generated) columns in declared
     /// order. `.dump` must SELECT only these so VIRTUAL / STORED generated
     /// columns are excluded from the emitted `INSERT` — matching sqlite3,

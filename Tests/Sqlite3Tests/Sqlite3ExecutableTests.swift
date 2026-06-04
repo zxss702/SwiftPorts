@@ -530,6 +530,19 @@ import Testing
         #expect(mem.stdout == "7\n")
     }
 
+    @Test func safeModeBlocksAttachAndLoadExtension() async throws {
+        // -safe gates SQL-level filesystem reach, not just dot-commands.
+        let attach = try await run(["-safe", ":memory:", "ATTACH 'foo.db' AS x;"])
+        #expect(attach.exit == 1)
+        #expect(attach.stderr == "line 0: cannot run ATTACH in safe mode\n")
+        let ext = try await run(["-safe", ":memory:", "SELECT load_extension('x');"])
+        #expect(ext.exit == 1)
+        #expect(ext.stderr == "line 0: cannot use the load_extension() function in safe mode\n")
+        // A normal statement is unaffected; ATTACH is denied without -safe-ing SQL.
+        let ok = try await run([":memory:"], input: "ATTACH ':memory:' AS y;\nSELECT 'ok';\n")
+        #expect(ok.stdout == "ok\n")
+    }
+
     @Test func limitListsAndSets() async throws {
         let list = try await run([":memory:", ".limit"])
         #expect(list.stdout.contains("              length 1000000000"))
