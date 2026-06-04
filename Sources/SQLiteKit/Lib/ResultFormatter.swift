@@ -79,7 +79,9 @@ public struct ResultFormatter: Sendable {
 
     private func renderLine(_ set: ResultSet) -> String {
         guard !set.columns.isEmpty else { return "" }
-        let width = set.columns.map(\.count).max() ?? 0
+        // sqlite3 right-justifies the column name in a field at least 5 wide
+        // (its hard floor), widening only if a column name exceeds it.
+        let width = max(set.columns.map(\.count).max() ?? 0, 5)
         var blocks: [String] = []
         for row in set.rows {
             let lines = set.columns.enumerated().map { (i, col) -> String in
@@ -110,15 +112,15 @@ public struct ResultFormatter: Sendable {
 
     private func renderMarkdown(_ set: ResultSet) -> String {
         let widths = columnWidths(set)
-        func rowLine(_ cells: [String]) -> String {
-            "|" + zip(cells, widths).map { " \(pad($0, $1)) " }.joined(separator: "|") + "|"
+        func rowLine(_ cells: [String], _ justify: (String, Int) -> String) -> String {
+            "|" + zip(cells, widths).map { " \(justify($0, $1)) " }.joined(separator: "|") + "|"
         }
         var lines: [String] = []
         if showHeader {
-            lines.append(rowLine(set.columns))
+            lines.append(rowLine(set.columns, center))   // sqlite3 centers headers
             lines.append("|" + widths.map { String(repeating: "-", count: $0 + 2) }.joined(separator: "|") + "|")
         }
-        for row in set.rows { lines.append(rowLine(row.map(text))) }
+        for row in set.rows { lines.append(rowLine(row.map(text), pad)) }
         return lines.isEmpty ? "" : lines.joined(separator: "\n") + "\n"
     }
 
@@ -132,15 +134,15 @@ public struct ResultFormatter: Sendable {
         func border(_ l: String, _ m: String, _ r: String) -> String {
             l + widths.map { String(repeating: glyphs.h, count: $0 + 2) }.joined(separator: m) + r
         }
-        func rowLine(_ cells: [String]) -> String {
-            glyphs.v + zip(cells, widths).map { " \(pad($0, $1)) " }.joined(separator: glyphs.v) + glyphs.v
+        func rowLine(_ cells: [String], _ justify: (String, Int) -> String) -> String {
+            glyphs.v + zip(cells, widths).map { " \(justify($0, $1)) " }.joined(separator: glyphs.v) + glyphs.v
         }
         var lines = [border(glyphs.tl, glyphs.tm, glyphs.tr)]
         if showHeader {
-            lines.append(rowLine(set.columns))
+            lines.append(rowLine(set.columns, center))   // sqlite3 centers headers
             lines.append(border(glyphs.ml, glyphs.mm, glyphs.mr))
         }
-        for row in set.rows { lines.append(rowLine(row.map(text))) }
+        for row in set.rows { lines.append(rowLine(row.map(text), pad)) }
         lines.append(border(glyphs.bl, glyphs.bm, glyphs.br))
         return lines.joined(separator: "\n") + "\n"
     }
@@ -160,8 +162,14 @@ public struct ResultFormatter: Sendable {
 
     private func renderInsert(_ set: ResultSet) -> String {
         let name = insertTable ?? "\"table\""
+        // sqlite3 lists the columns only when headers are on:
+        //   headers on  → INSERT INTO t(a,b) VALUES(…)
+        //   headers off → INSERT INTO t VALUES(…)
+        let cols = showHeader
+            ? "(" + set.columns.map { SQLiteDatabase.quoteIdentifier($0) }.joined(separator: ",") + ")"
+            : ""
         return set.rows
-            .map { "INSERT INTO \(name) VALUES(" + $0.map(\.sqlLiteral).joined(separator: ",") + ");\n" }
+            .map { "INSERT INTO \(name)\(cols) VALUES(" + $0.map(\.sqlLiteral).joined(separator: ",") + ");\n" }
             .joined()
     }
 
@@ -250,5 +258,13 @@ public struct ResultFormatter: Sendable {
 
     private func pad(_ s: String, _ width: Int) -> String {
         s + String(repeating: " ", count: max(0, width - s.count))
+    }
+
+    /// Centers `s` in `width`, putting any odd extra space on the right —
+    /// matching how sqlite3 centers column headers in box / markdown / table.
+    private func center(_ s: String, _ width: Int) -> String {
+        let total = max(0, width - s.count)
+        let left = total / 2
+        return String(repeating: " ", count: left) + s + String(repeating: " ", count: total - left)
     }
 }

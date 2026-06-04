@@ -198,4 +198,39 @@ import Testing
         #expect(SQLiteValue.null.sqlLiteral == "NULL")
         #expect(SQLiteValue.integer(42).sqlLiteral == "42")
     }
+
+    @Test func insertModeWithHeadersListsColumns() {
+        // With headers on, sqlite3's insert mode prefixes the column list.
+        let formatter = ResultFormatter(mode: .insert, showHeader: true)
+        #expect(formatter.render(sample) ==
+            "INSERT INTO \"table\"(id,name) VALUES(1,'alice');\nINSERT INTO \"table\"(id,name) VALUES(2,NULL);\n")
+    }
+
+    @Test func realTextMatchesSqlite() {
+        // Text/display modes use sqlite3's %!.15g: 15 significant digits,
+        // always float-shaped, with -0.0 normalized to 0.0.
+        #expect(SQLiteValue.realText(1.0 / 3.0) == "0.333333333333333")
+        #expect(SQLiteValue.realText(0.1 + 0.2) == "0.3")
+        #expect(SQLiteValue.realText(100) == "100.0")
+        #expect(SQLiteValue.realText(-0.0) == "0.0")
+        #expect(SQLiteValue.realText(1e20) == "1.0e+20")
+        #expect(SQLiteValue.realText(2.5) == "2.5")
+        // ...and it flows through text-mode rendering (was String(d) before):
+        let set = ResultSet(columns: ["r"], rows: [[.real(1.0 / 3.0)]])
+        #expect(ResultFormatter(mode: .list).render(set) == "0.333333333333333\n")
+    }
+
+    @Test func boxCentersHeadersOverWiderData() {
+        // sqlite3 centers headers (data stays left-justified) in box mode.
+        let set = ResultSet(columns: ["x", "y"], rows: [[.integer(1), .text("longvalue")]])
+        let formatter = ResultFormatter(mode: .box, showHeader: true)
+        #expect(formatter.render(set) ==
+            "┌───┬───────────┐\n│ x │     y     │\n├───┼───────────┤\n│ 1 │ longvalue │\n└───┴───────────┘\n")
+    }
+
+    @Test func lineModeHasMinimumWidth() {
+        // sqlite3 right-justifies the column name in a field at least 5 wide.
+        let set = ResultSet(columns: ["a"], rows: [[.integer(1)]])
+        #expect(ResultFormatter(mode: .line).render(set) == "    a = 1\n")
+    }
 }

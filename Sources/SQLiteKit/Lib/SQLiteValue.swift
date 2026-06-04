@@ -17,7 +17,7 @@ public extension SQLiteValue {
         switch self {
         case .null: return nil
         case .integer(let i): return String(i)
-        case .real(let d): return String(d)
+        case .real(let d): return Self.realText(d)
         case .text(let s): return s
         // sqlite3 dumps raw blob bytes in text modes; we decode as UTF-8
         // (lossy for non-textual binary), since the formatter works in
@@ -37,6 +37,28 @@ public extension SQLiteValue {
         case .text(let s): return "'" + s.replacingOccurrences(of: "'", with: "''") + "'"
         case .blob(let b): return "X'" + b.map { String(format: "%02x", $0) }.joined() + "'"
         }
+    }
+}
+
+extension SQLiteValue {
+    /// Formats a Double the way the `sqlite3` shell does in text/display modes
+    /// (`%!.15g`): 15 significant digits, always rendered as a real (a decimal
+    /// point or exponent is guaranteed) and `-0.0` normalized to `0.0`.
+    /// Round-trip contexts (quote / insert / `.dump`, and JSON) instead use
+    /// full precision; see ``sqlLiteral``.
+    static func realText(_ d: Double) -> String {
+        if d == 0 { return "0.0" }                          // also normalizes -0.0
+        if d.isNaN { return "" }                             // SQLite maps NaN to NULL; defensive
+        if d.isInfinite { return d < 0 ? "-Inf" : "Inf" }
+        var s = String(format: "%.15g", d)
+        // sqlite3's "!" flag forces float-looking output: %g drops the decimal
+        // point for integral magnitudes ("100") and bare exponents ("1e+20").
+        if let e = s.firstIndex(where: { $0 == "e" || $0 == "E" }) {
+            if !s[s.startIndex..<e].contains(".") { s.insert(contentsOf: ".0", at: e) }
+        } else if !s.contains(".") {
+            s += ".0"
+        }
+        return s
     }
 }
 
