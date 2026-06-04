@@ -145,6 +145,12 @@ public final class SQLiteDatabase {
         } ?? []
     }
 
+    /// Whether the named database (default `main`) is open read-only — used
+    /// by `.databases` to print the `r/w` / `r/o` tag.
+    public func isReadOnly(_ name: String = "main") -> Bool {
+        sqlite3_db_readonly(handle, name) == 1
+    }
+
     /// Copies this database into `destination` using SQLite's online backup
     /// API — backing the CLI's `.backup` / `.restore`.
     public func backup(to destination: SQLiteDatabase,

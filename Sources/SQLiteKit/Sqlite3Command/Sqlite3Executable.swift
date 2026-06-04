@@ -63,6 +63,7 @@ public enum Sqlite3Executable {
             showHeader = true
         }
 
+        let filename: String = { if case .file(let p) = location { return p } else { return ":memory:" } }()
         let session = Session(
             database: database,
             formatter: ResultFormatter(mode: options.mode,
@@ -74,7 +75,8 @@ public enum Sqlite3Executable {
             interactive: options.interactive,
             headerExplicit: options.headerExplicit,
             echo: options.echo,
-            bail: options.bail)
+            bail: options.bail,
+            filename: filename)
 
         // -init FILE, then any -cmd commands, before the main input.
         if let initFile = options.initFile {
@@ -108,6 +110,8 @@ final class Session {
 
     private var database: SQLiteDatabase
     private var formatter: ResultFormatter
+    /// The database filename as opened (":memory:" or a path), shown by `.show`.
+    private var filename: String
     private let stdout: OutputSink
     private let stderr: OutputSink
     private let interactive: Bool
@@ -136,9 +140,11 @@ final class Session {
          interactive: Bool,
          headerExplicit: Bool,
          echo: Bool,
-         bail: Bool) {
+         bail: Bool,
+         filename: String) {
         self.database = database
         self.formatter = formatter
+        self.filename = filename
         self.stdout = stdout
         self.stderr = stderr
         self.interactive = interactive
@@ -325,18 +331,39 @@ final class Session {
 
         case ".schema":
             introspect {
-                let statements = try database.schemaSQL(of: args.first)
-                if !statements.isEmpty {
-                    out(statements.map { $0 + ";" }.joined(separator: "\n") + "\n")
+                // Filter on tbl_name so `.schema foo` also returns foo's
+                // indexes/triggers (matching sqlite3). Views get a trailing
+                // `/* name(cols) */` comment listing their result columns.
+                let filter = args.first.map { " AND tbl_name = '\(SQLiteDatabase.quote($0))'" } ?? ""
+                let rows = try database.evaluate("""
+                    SELECT type, name, sql FROM sqlite_schema
+                    WHERE sql NOT NULL\(filter) ORDER BY rowid;
+                    """).first?.rows ?? []
+                var lines: [String] = []
+                for r in rows {
+                    guard case .text(let type) = r[0], case .text(let name) = r[1],
+                          case .text(let sql) = r[2] else { continue }
+                    if type == "view" {
+                        let viewCols = (try? database.evaluate(
+                            "SELECT * FROM \(SQLiteDatabase.quoteIdentifier(name)) LIMIT 0;"))?
+                            .first?.columns ?? []
+                        let cols = viewCols.map { SQLiteDatabase.quoteIdentifier($0) }.joined(separator: ",")
+                        lines.append("\(sql)\n/* \(SQLiteDatabase.quoteIdentifier(name))(\(cols)) */;")
+                    } else {
+                        lines.append(sql + ";")
+                    }
                 }
+                if !lines.isEmpty { out(lines.joined(separator: "\n") + "\n") }
             }
 
         case ".databases":
             introspect {
-                let list = try database.databaseList()
-                if !list.isEmpty {
-                    out(list.map { "\($0.name): \($0.file)" }.joined(separator: "\n") + "\n")
+                // sqlite3 prints: <name>: <"" if no file else path> <r/w|r/o>
+                let lines = try database.databaseList().map { db -> String in
+                    let file = db.file.isEmpty ? "\"\"" : db.file
+                    return "\(db.name): \(file) \(database.isReadOnly(db.name) ? "r/o" : "r/w")"
                 }
+                if !lines.isEmpty { out(lines.joined(separator: "\n") + "\n") }
             }
 
         case ".indexes", ".indices":
@@ -512,13 +539,32 @@ final class Session {
             }
 
         case ".show":
-            let settings = [
-                "     mode: \(formatter.mode.rawValue)",
-                "  headers: \(formatter.showHeader ? "on" : "off")",
-                "separator: \"\(formatter.separator)\"",
-                "nullvalue: \"\(formatter.nullValue)\"",
+            // Mirrors sqlite3's .show: 12 labels right-justified to width 12.
+            // explain / stats / rowseparator / width aren't modeled yet, so
+            // they show sqlite3's defaults (matches the common no-.width case).
+            func showEscape(_ s: String) -> String {
+                s.replacingOccurrences(of: "\t", with: "\\t")
+                 .replacingOccurrences(of: "\n", with: "\\n")
+                 .replacingOccurrences(of: "\r", with: "\\r")
+            }
+            let fields: [(String, String)] = [
+                ("echo", echo ? "on" : "off"),
+                ("eqp", eqp ? "on" : "off"),
+                ("explain", "auto"),
+                ("headers", formatter.showHeader ? "on" : "off"),
+                ("mode", formatter.mode.rawValue),
+                ("nullvalue", "\"\(showEscape(formatter.nullValue))\""),
+                ("output", redirect?.url.path ?? "stdout"),
+                ("colseparator", "\"\(showEscape(formatter.separator))\""),
+                ("rowseparator", "\"\\n\""),
+                ("stats", "off"),
+                ("width", ""),
+                ("filename", filename),
             ]
-            out(settings.joined(separator: "\n") + "\n")
+            let body = fields.map { label, value in
+                String(repeating: " ", count: max(0, 12 - label.count)) + label + ": " + value
+            }.joined(separator: "\n")
+            out(body + "\n")
 
         case ".open":
             guard let path = args.first else {
@@ -530,6 +576,7 @@ final class Session {
                 let replacement = try SQLiteDatabase(.file(url.path))
                 database.close()
                 database = replacement
+                filename = url.path
             } catch let error as SQLiteError {
                 err("Error: \(error.message)\n")
             } catch {
