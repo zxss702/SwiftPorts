@@ -343,12 +343,15 @@ final class Session {
                 for r in rows {
                     guard case .text(let type) = r[0], case .text(let name) = r[1],
                           case .text(let sql) = r[2] else { continue }
-                    if type == "view" {
-                        let viewCols = (try? database.evaluate(
-                            "SELECT * FROM \(SQLiteDatabase.quoteIdentifier(name)) LIMIT 0;"))?
-                            .first?.columns ?? []
-                        let cols = viewCols.map { SQLiteDatabase.quoteIdentifier($0) }.joined(separator: ",")
-                        lines.append("\(sql)\n/* \(SQLiteDatabase.quoteIdentifier(name))(\(cols)) */;")
+                    // sqlite3 appends the /* view(cols) */ comment only when the
+                    // view's columns resolve; an unpreparable view (e.g. one
+                    // referencing a missing table) prints just its stored CREATE.
+                    if type == "view",
+                       let cols = (try? database.evaluate(
+                           "SELECT * FROM \(SQLiteDatabase.quoteIdentifier(name)) LIMIT 0;"))?.first?.columns,
+                       !cols.isEmpty {
+                        let list = cols.map { SQLiteDatabase.quoteIdentifier($0) }.joined(separator: ",")
+                        lines.append("\(sql)\n/* \(SQLiteDatabase.quoteIdentifier(name))(\(list)) */;")
                     } else {
                         lines.append(sql + ";")
                     }
@@ -547,16 +550,32 @@ final class Session {
                  .replacingOccurrences(of: "\n", with: "\\n")
                  .replacingOccurrences(of: "\r", with: "\\r")
             }
+            // sqlite3 derives the separators from the active mode: csv → , / \r\n,
+            // tabs → \t, ascii → \037 / \036, quote → , ; other modes use the
+            // configured list separator. (A `.separator` override issued *after*
+            // a mode change isn't tracked separately here — a rare edge.)
+            let colsep: String, rowsep: String
+            switch formatter.mode {
+            case .csv:   colsep = ","; rowsep = "\\r\\n"
+            case .tabs:  colsep = "\\t"; rowsep = "\\n"
+            case .ascii: colsep = "\\037"; rowsep = "\\036"
+            case .quote: colsep = ","; rowsep = "\\n"
+            default:     colsep = showEscape(formatter.separator); rowsep = "\\n"
+            }
+            // sqlite3 reports `tabs` as its underlying `list` mode. (The column
+            // family also appends `--wrap 60 --wordwrap off --noquote`; that
+            // suffix arrives with the column-wrapping feature — see `.width`.)
+            let modeField = formatter.mode == .tabs ? "list" : formatter.mode.rawValue
             let fields: [(String, String)] = [
                 ("echo", echo ? "on" : "off"),
                 ("eqp", eqp ? "on" : "off"),
                 ("explain", "auto"),
                 ("headers", formatter.showHeader ? "on" : "off"),
-                ("mode", formatter.mode.rawValue),
+                ("mode", modeField),
                 ("nullvalue", "\"\(showEscape(formatter.nullValue))\""),
                 ("output", redirect?.url.path ?? "stdout"),
-                ("colseparator", "\"\(showEscape(formatter.separator))\""),
-                ("rowseparator", "\"\\n\""),
+                ("colseparator", "\"\(colsep)\""),
+                ("rowseparator", "\"\(rowsep)\""),
                 ("stats", "off"),
                 ("width", ""),
                 ("filename", filename),

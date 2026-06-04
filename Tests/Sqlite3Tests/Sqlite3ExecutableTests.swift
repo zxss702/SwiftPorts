@@ -438,6 +438,23 @@ import Testing
         ].joined(separator: "\n") + "\n"
         #expect(r.stdout == expected)
     }
+
+    @Test func schemaUnresolvableViewHasNoComment() async throws {
+        // A view that can't be prepared (missing table) prints just its stored
+        // CREATE — no bogus /* v() */ comment (matches sqlite3). [PR #48 review]
+        let r = try await run([":memory:"], input: """
+        CREATE VIEW v AS SELECT * FROM missing;
+        .schema v
+        """)
+        #expect(r.stdout == "CREATE VIEW v AS SELECT * FROM missing;\n")
+    }
+
+    @Test func showReportsModeDerivedSeparators() async throws {
+        // .mode csv changes the reported separators to , / \r\n. [PR #48 review]
+        let r = try await run([":memory:"], input: ".mode csv\n.show\n")
+        #expect(r.stdout.contains("colseparator: \",\""))
+        #expect(r.stdout.contains("rowseparator: \"\\r\\n\""))
+    }
 }
 
 #endif  // !os(Android)
