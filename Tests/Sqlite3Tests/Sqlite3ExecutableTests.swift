@@ -543,6 +543,40 @@ import Testing
         #expect(ok.stdout == "ok\n")
     }
 
+    @Test func attachIsGatedByTheSandbox() async throws {
+        // A rooted sandbox confines ATTACH the same way it confines the db
+        // file / .read / .open: a path outside the root is denied, one inside
+        // is allowed. (No -safe here — this is the always-on sandbox gate.)
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("sqlite-attach-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        func run(_ sql: String) async throws -> (out: String, err: String, exit: Int32) {
+            var shell = Shell(environment: Environment(
+                variables: ProcessInfo.processInfo.environment,
+                workingDirectory: root.path))
+            shell.sandbox = .rooted(at: root)
+            let out = OutputSink(), err = OutputSink()
+            shell.stdout = out; shell.stderr = err
+            let exit = try await Shell.$current.withValue(shell) {
+                try await Sqlite3Executable.run(
+                    argv: [":memory:", sql], stdin: .string(""), stdout: out, stderr: err)
+            }
+            out.finish(); err.finish()
+            return (await out.readAllString(), await err.readAllString(), exit)
+        }
+
+        let outside = try await run("ATTACH '/etc/hosts' AS x;")
+        #expect(outside.exit == 1)
+        #expect(outside.err.contains("Error:"))           // sandbox denial reported
+
+        let inside = root.appendingPathComponent("inside.db").path
+        let allowed = try await run("ATTACH '\(inside)' AS x; SELECT 'ok';")
+        #expect(allowed.exit == 0)
+        #expect(allowed.out == "ok\n")
+    }
+
     @Test func limitListsAndSets() async throws {
         let list = try await run([":memory:", ".limit"])
         #expect(list.stdout.contains("              length 1000000000"))

@@ -220,7 +220,7 @@ final class Session {
             if SQLiteDatabase.isCompleteStatement(buffer) {
                 let sql = buffer
                 buffer = ""
-                if !runStatement(sql, startLine: statementStart, context: context) && stopsOnError() {
+                if !(await runStatement(sql, startLine: statementStart, context: context)) && stopsOnError() {
                     return false
                 }
             }
@@ -229,7 +229,7 @@ final class Session {
         let leftover = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
         buffer = ""
         if !leftover.isEmpty {
-            if !runStatement(leftover, startLine: statementStart, context: context) && stopsOnError() {
+            if !(await runStatement(leftover, startLine: statementStart, context: context)) && stopsOnError() {
                 return false
             }
         }
@@ -273,23 +273,40 @@ final class Session {
             if SQLiteDatabase.isCompleteStatement(buffer) {
                 let sql = buffer
                 buffer = ""
-                _ = runStatement(sql, startLine: statementStart, context: .interactive)
+                _ = await runStatement(sql, startLine: statementStart, context: .interactive)
             }
         }
         // Run a trailing statement left unterminated at EOF, like sqlite3.
         let leftover = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
         buffer = ""
         if !leftover.isEmpty {
-            _ = runStatement(leftover, startLine: statementStart, context: .interactive)
+            _ = await runStatement(leftover, startLine: statementStart, context: .interactive)
         }
     }
 
     /// Runs one chunk of SQL and renders any result sets. Returns `false`
     /// on error (after reporting it).
     @discardableResult
-    private func runStatement(_ sql: String, startLine: Int, context: SourceContext) -> Bool {
+    private func runStatement(_ sql: String, startLine: Int, context: SourceContext) async -> Bool {
         if echo { out(sql.trimmingCharacters(in: .whitespacesAndNewlines) + "\n") }
         if eqp { renderQueryPlan(sql) }
+        // Gate any ATTACH'd file through the host sandbox before SQLite opens
+        // it — the same resolve/authorize path the db file and `.read` /
+        // `.open` take. (`-safe` blocks ATTACH outright via its authorizer,
+        // so this is the non-safe confinement path; `:memory:` / temp ATTACHes
+        // touch no file and are skipped.)
+        if !safeMode, sql.range(of: "attach", options: .caseInsensitive) != nil {
+            for target in database.attachTargets(in: sql)
+            where !target.isEmpty && target != ":memory:" {
+                do {
+                    try await Shell.authorize(Shell.resolve(target))
+                } catch {
+                    err("Error: \(error)\n")
+                    exitCode = 1
+                    return false
+                }
+            }
+        }
         do {
             for set in try database.evaluate(sql) {
                 out(formatter.render(set))

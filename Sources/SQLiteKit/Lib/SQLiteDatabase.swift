@@ -181,6 +181,50 @@ public final class SQLiteDatabase {
         "load_extension", "readfile", "writefile", "edit", "fsdir", "zipfile",
     ]
 
+    /// Scratch buffer for ``attachTargets(in:)`` — the recording authorizer
+    /// appends ATTACH filenames here.
+    private var collectedAttachPaths: [String] = []
+
+    /// The file paths the `ATTACH` statements in `sql` would open, found by
+    /// preparing each statement (never stepping it, so nothing runs and no
+    /// file is opened) under a recording authorizer. The CLI gates these
+    /// through ShellKit's sandbox before executing the SQL for real — the
+    /// same `resolve` + `authorize` path the database file / `.read` /
+    /// `.open` already take, so ATTACH can't reach outside the sandbox.
+    ///
+    /// Literal paths (the overwhelmingly common form) are captured regardless
+    /// of statement order. An ATTACH whose path *expression* only resolves
+    /// after a prior statement executes isn't pre-seen — closing that needs a
+    /// VFS-level interceptor (a tracked follow-up), not this prepare pass.
+    public func attachTargets(in sql: String) -> [String] {
+        collectedAttachPaths = []
+        let ctx = Unmanaged.passUnretained(self).toOpaque()
+        sqlite3_set_authorizer(handle, { ctx, op, filename, _, _, _ in
+            if op == SQLITE_ATTACH, let ctx, let filename {
+                Unmanaged<SQLiteDatabase>.fromOpaque(ctx).takeUnretainedValue()
+                    .collectedAttachPaths.append(String(cString: filename))
+            }
+            return SQLITE_OK
+        }, ctx)
+        defer { sqlite3_set_authorizer(handle, nil, nil) }
+        sql.withCString { start in
+            let end = start + sql.utf8.count
+            var cursor: UnsafePointer<CChar>? = start
+            while let head = cursor, head < end {
+                var stmt: OpaquePointer?
+                var tail: UnsafePointer<CChar>?
+                // Prepare-only: the authorizer observes ATTACHes without any
+                // statement executing. Stop at the first prepare error (a
+                // later statement may depend on an earlier one running).
+                guard sqlite3_prepare_v2(handle, head, -1, &stmt, &tail) == SQLITE_OK else { break }
+                if let stmt { sqlite3_finalize(stmt) }
+                guard let tail, tail != cursor else { break }
+                cursor = tail
+            }
+        }
+        return collectedAttachPaths
+    }
+
     /// Installs sqlite3's `-safe` SQL-level authorizer: deny `ATTACH` (any
     /// target — it can create a disk file) and the filesystem-reaching
     /// functions, recording the matching refusal message. `DETACH` and every
