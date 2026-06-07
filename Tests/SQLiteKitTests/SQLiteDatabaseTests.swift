@@ -141,6 +141,153 @@ import Testing
         #expect(SQLiteDatabase.libVersion == "3.50.4")
     }
 
+    // MARK: - Parameter binding (issue #52)
+
+    @Test func boundEvaluateRoundTripsEverySQLiteValueCase() throws {
+        let db = try SQLiteDatabase.inMemory()
+        let blob = Data([0x00, 0x01, 0xfe, 0xff])
+        // One bound SELECT carrying every storage class straight back out.
+        let row = try db.evaluate(
+            "SELECT ?, ?, ?, ?, ?;",
+            [.null, .integer(42), .real(2.5), .text("héllo"), .blob(blob)]
+        )[0].rows[0]
+        #expect(row == [.null, .integer(42), .real(2.5), .text("héllo"), .blob(blob)])
+    }
+
+    @Test func boundTextNeedsNoEscaping() throws {
+        // A value full of single quotes that would break the string path binds
+        // losslessly — the whole point of out-of-band parameters.
+        let db = try SQLiteDatabase.inMemory()
+        try db.evaluate("CREATE TABLE t(v TEXT);")
+        let nasty = "Bobby '); DROP TABLE t; -- ''"
+        try db.execute("INSERT INTO t(v) VALUES (?);", [.text(nasty)])
+        let rows = try db.evaluate("SELECT v FROM t;")[0].rows
+        #expect(rows == [[.text(nasty)]])
+    }
+
+    @Test func boundEmptyBlobStaysABlob() throws {
+        // Empty Data must bind as a zero-length blob, not SQL NULL.
+        let db = try SQLiteDatabase.inMemory()
+        let row = try db.evaluate("SELECT ?;", [.blob(Data())])[0].rows[0]
+        #expect(row == [.blob(Data())])
+    }
+
+    @Test func preparedStatementReuseAcrossRows() throws {
+        // Prepare once, step many: one INSERT … VALUES(?, ?) bound in a loop.
+        let db = try SQLiteDatabase.inMemory()
+        try db.evaluate("CREATE TABLE t(id INTEGER PRIMARY KEY, name TEXT);")
+        let stmt = try SQLiteStatement(db, "INSERT INTO t(id, name) VALUES (?, ?);")
+        let people: [(Int64, String)] = [(1, "a"), (2, "b"), (3, "c")]
+        for (id, name) in people {
+            try stmt.bind([.integer(id), .text(name)])
+            _ = try stmt.step()
+            stmt.reset()
+        }
+        let sets = try db.evaluate("SELECT id, name FROM t ORDER BY id;")
+        #expect(sets[0].rows == [[.integer(1), .text("a")],
+                                 [.integer(2), .text("b")],
+                                 [.integer(3), .text("c")]])
+    }
+
+    @Test func preparedStatementIteratesResultRows() throws {
+        let db = try SQLiteDatabase.inMemory()
+        try db.evaluate("CREATE TABLE t(n INTEGER);")
+        try db.execute("INSERT INTO t(n) VALUES (1),(2),(3);")
+        let stmt = try SQLiteStatement(db, "SELECT n FROM t WHERE n >= ? ORDER BY n;")
+        try stmt.bind([.integer(2)])
+        var seen: [Int64] = []
+        while let row = try stmt.step() {
+            if case .integer(let n) = row[0] { seen.append(n) }
+        }
+        #expect(seen == [2, 3])
+    }
+
+    @Test func namedParameterBinding() throws {
+        let db = try SQLiteDatabase.inMemory()
+        let row = try db.evaluate(
+            "SELECT :a + :b AS sum, :a AS a;",
+            [":a": .integer(10), ":b": .integer(5)]
+        )[0].rows[0]
+        #expect(row == [.integer(15), .integer(10)])
+    }
+
+    @Test func unknownNamedParameterThrows() throws {
+        let db = try SQLiteDatabase.inMemory()
+        let stmt = try SQLiteStatement(db, "SELECT :a;")
+        #expect(throws: SQLiteError.self) {
+            try stmt.bind(":nope", .integer(1))
+        }
+    }
+
+    @Test func parameterCountMismatchThrowsBeforeStepping() throws {
+        let db = try SQLiteDatabase.inMemory()
+        let stmt = try SQLiteStatement(db, "SELECT ?, ?;")
+        #expect(throws: SQLiteError.self) {
+            try stmt.bind([.integer(1)])           // too few
+        }
+        #expect(throws: SQLiteError.self) {
+            try stmt.bind([.integer(1), .integer(2), .integer(3)])   // too many
+        }
+    }
+
+    @Test func boundPathRejectsMultipleStatements() throws {
+        let db = try SQLiteDatabase.inMemory()
+        // Trailing whitespace / a bare terminator is fine…
+        #expect(throws: Never.self) {
+            try SQLiteStatement(db, "SELECT 1;  ")
+        }
+        // …but a real second statement can't be bound unambiguously.
+        #expect(throws: SQLiteError.self) {
+            try SQLiteStatement(db, "SELECT 1; SELECT 2;")
+        }
+    }
+
+    // The compact `vec0` insert path: a packed float32 blob bound out-of-band
+    // (6 KB of raw bytes for a 1536-d vector instead of a ~20 KB JSON literal),
+    // then MATCH KNN reads it back — proving the blob bind end-to-end. Gated on
+    // the SQLiteVec trait; run with `swift test --traits SQLiteVec`.
+    @Test func vec0BlobBind() throws {
+        let db = try SQLiteDatabase.inMemory()
+        #if SQLiteVec
+        try db.evaluate("""
+            CREATE VIRTUAL TABLE docs USING vec0(
+                doc_id INTEGER PRIMARY KEY,
+                embedding float[3] distance_metric=cosine
+            );
+            """)
+
+        func packed(_ floats: [Float]) -> Data {
+            var data = Data(capacity: floats.count * 4)
+            for f in floats {
+                var le = f.bitPattern.littleEndian
+                withUnsafeBytes(of: &le) { data.append(contentsOf: $0) }
+            }
+            return data
+        }
+
+        // Prepare once, bind a packed-float32 blob per row.
+        let insert = try SQLiteStatement(db, "INSERT INTO docs(doc_id, embedding) VALUES (?, ?);")
+        let vectors: [(Int64, [Float])] = [(1, [1, 0, 0]), (2, [0, 1, 0]), (3, [0, 0, 1])]
+        for (id, vector) in vectors {
+            try insert.bind([.integer(id), .blob(packed(vector))])
+            _ = try insert.step()
+            insert.reset()
+        }
+
+        // KNN with the query vector itself bound as a blob parameter.
+        let knn = try db.evaluate("""
+            SELECT doc_id FROM docs
+            WHERE embedding MATCH ? AND k = 2
+            ORDER BY distance;
+            """, [.blob(packed([0.9, 0.1, 0.0]))])
+        #expect(knn[0].rows.map { $0[0] } == [.integer(1), .integer(2)])
+        #else
+        #expect(throws: SQLiteError.self) {
+            try db.evaluate("CREATE VIRTUAL TABLE v USING vec0(embedding float[3]);")
+        }
+        #endif
+    }
+
     // FTS5 full-text search, gated by the package's `FTS5` trait (off by
     // default). The test pins the on/off contract in both directions: with
     // the trait, the engine advertises ENABLE_FTS5 and MATCH works; without

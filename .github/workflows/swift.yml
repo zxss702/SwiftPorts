@@ -53,7 +53,7 @@ jobs:
         # semanticSearchSQLiteVec (#if SQLiteVec — vec0 cosine KNN). One rebuild
         # instead of one per trait (recompiling sqlite3.c twice). The default
         # run above covers the off-state (#else branches).
-        run: swift test -v --traits FTS5,SQLiteVec --filter fullTextSearchFTS5 --filter semanticSearchSQLiteVec
+        run: swift test -v --traits FTS5,SQLiteVec --filter fullTextSearchFTS5 --filter semanticSearchSQLiteVec --filter vec0BlobBind
 
   build-ios:
     # Build + test on the iOS Simulator. Process-using SwiftGit
@@ -107,7 +107,7 @@ jobs:
         # One rebuild with both engine traits: validates FTS5 full-text search
         # and the sqlite-vec amalgamation compile + KNN on Linux. The default
         # run above covers the off-state.
-        run: swift test -v --traits FTS5,SQLiteVec --filter fullTextSearchFTS5 --filter semanticSearchSQLiteVec
+        run: swift test -v --traits FTS5,SQLiteVec --filter fullTextSearchFTS5 --filter semanticSearchSQLiteVec --filter vec0BlobBind
 
   build-windows:
     # Full Windows build. The libgit2 fork
@@ -198,7 +198,7 @@ jobs:
         # both on-state proofs; the default run above covers the off-state.
         shell: pwsh
         run: |
-          swift test -v --traits FTS5,SQLiteVec --filter fullTextSearchFTS5 --filter semanticSearchSQLiteVec `
+          swift test -v --traits FTS5,SQLiteVec --filter fullTextSearchFTS5 --filter semanticSearchSQLiteVec --filter vec0BlobBind `
             -Xcc "-I$env:VCPKG_BASE\include" `
             -Xlinker "/LIBPATH:$env:VCPKG_BASE\lib"
 
