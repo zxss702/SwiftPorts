@@ -1,5 +1,8 @@
 import Foundation
 import SQLiteSwiftCSQLite
+#if SQLiteVec
+import CSQLiteVec
+#endif
 
 /// An error surfaced by SQLite, carrying the result code, message, the
 /// byte offset of the error within the SQL (or -1), and whether it arose
@@ -23,6 +26,17 @@ public struct SQLiteError: Error, CustomStringConvertible, Equatable, Sendable {
     public var description: String { message }
 }
 
+#if SQLiteVec
+/// Registers sqlite-vec exactly once, before the first connection opens, so
+/// every ``SQLiteDatabase`` exposes the `vec0` virtual table and `vec_*`
+/// functions. A file-scope `let` initializes lazily and thread-safely, so
+/// touching it at the top of `init` runs the registration a single time.
+/// Gated behind the `SQLiteVec` package trait.
+private let sqliteVecRegistered: Void = {
+    _ = csqlite_vec_register()
+}()
+#endif
+
 /// A thin Swift wrapper over a SQLite connection backed by the vendored
 /// amalgamation. Intentionally minimal — just what the `sqlite3` CLI and
 /// in-process embedders need to run SQL and read results back.
@@ -35,6 +49,9 @@ public final class SQLiteDatabase {
     private var handle: OpaquePointer?
 
     public init(_ location: Location, readonly: Bool = false) throws {
+        #if SQLiteVec
+        _ = sqliteVecRegistered   // one-time sqlite-vec auto-extension registration
+        #endif
         let path: String
         switch location {
         case .memory: path = ":memory:"

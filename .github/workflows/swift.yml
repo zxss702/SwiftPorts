@@ -47,11 +47,13 @@ jobs:
         run: swift build --build-tests -v
       - name: Test (macOS)
         run: swift test -v --skip-build --no-parallel
-      - name: Test with FTS5 trait (macOS)
-        # Prove the opt-in full-text-search trait builds and works. --traits
-        # forces a rebuild of the SQLite engine with -DSQLITE_ENABLE_FTS5, so
-        # the #if FTS5 branch of fullTextSearchFTS5 exercises MATCH / bm25.
-        run: swift test -v --traits FTS5 --filter fullTextSearchFTS5
+      - name: Test engine traits FTS5 + SQLiteVec (macOS)
+        # Build the SQLite subgraph once with both opt-in engine traits and run
+        # their on-state proofs: fullTextSearchFTS5 (#if FTS5 — MATCH / bm25) and
+        # semanticSearchSQLiteVec (#if SQLiteVec — vec0 cosine KNN). One rebuild
+        # instead of one per trait (recompiling sqlite3.c twice). The default
+        # run above covers the off-state (#else branches).
+        run: swift test -v --traits FTS5,SQLiteVec --filter fullTextSearchFTS5 --filter semanticSearchSQLiteVec
 
   build-ios:
     # Build + test on the iOS Simulator. Process-using SwiftGit
@@ -101,10 +103,11 @@ jobs:
         run: swift build --build-tests -v
       - name: Test (Linux)
         run: swift test -v --skip-build --no-parallel
-      - name: Test with FTS5 trait (Linux)
-        # Validate full-text search on Linux: --traits rebuilds the engine
-        # with -DSQLITE_ENABLE_FTS5 and runs the #if FTS5 functional proof.
-        run: swift test -v --traits FTS5 --filter fullTextSearchFTS5
+      - name: Test engine traits FTS5 + SQLiteVec (Linux)
+        # One rebuild with both engine traits: validates FTS5 full-text search
+        # and the sqlite-vec amalgamation compile + KNN on Linux. The default
+        # run above covers the off-state.
+        run: swift test -v --traits FTS5,SQLiteVec --filter fullTextSearchFTS5 --filter semanticSearchSQLiteVec
 
   build-windows:
     # Full Windows build. The libgit2 fork
@@ -114,7 +117,11 @@ jobs:
     # build cleanly. The whole tree (`zip`, `unzip`, `gh`, `glab`,
     # `git`) compiles here.
     runs-on: windows-latest
-    timeout-minutes: 30
+    # 40 (was 30): the full monorepo build plus a both-traits SQLite rebuild
+    # (recompiling the 10 MB sqlite3.c amalgamation) is tight on the slowest
+    # runner. Combining the trait runs into one step keeps this well under, but
+    # the margin guards against runner variance.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v6
       - name: Setup Swift
@@ -185,12 +192,13 @@ jobs:
           swift test -v --skip-build --no-parallel `
             -Xcc "-I$env:VCPKG_BASE\include" `
             -Xlinker "/LIBPATH:$env:VCPKG_BASE\lib"
-      - name: Test with FTS5 trait (Windows)
-        # Validate full-text search on Windows: --traits rebuilds the engine
-        # with -DSQLITE_ENABLE_FTS5 and runs the #if FTS5 functional proof.
+      - name: Test engine traits FTS5 + SQLiteVec (Windows)
+        # One rebuild with both engine traits instead of recompiling sqlite3.c
+        # twice (the slow part that overran the 30-min timeout on Windows). Runs
+        # both on-state proofs; the default run above covers the off-state.
         shell: pwsh
         run: |
-          swift test -v --traits FTS5 --filter fullTextSearchFTS5 `
+          swift test -v --traits FTS5,SQLiteVec --filter fullTextSearchFTS5 --filter semanticSearchSQLiteVec `
             -Xcc "-I$env:VCPKG_BASE\include" `
             -Xlinker "/LIBPATH:$env:VCPKG_BASE\lib"
 
@@ -229,11 +237,11 @@ jobs:
           swift-version: "6.3.2"
           # SDK + NDK + emulator overrun the runner's ~14 GiB free space.
           free-disk-space: true
-          # Cross-build + run the SDK suite with the FTS5 trait so full-text
-          # search is validated on Android too: the engine is compiled with
-          # -DSQLITE_ENABLE_FTS5 and the #if FTS5 branch of fullTextSearchFTS5
-          # runs on the x86_64 emulator. (The other platforms keep a default,
-          # FTS-off run; the off-state contract is asserted by the #else
-          # branch there.)
-          swift-build-flags: "--traits FTS5"
-          swift-test-flags: "--traits FTS5"
+          # Cross-build + run the SDK suite with both engine traits, so the
+          # FTS5 engine build and the vendored sqlite-vec amalgamation are
+          # compiled for Android and fullTextSearchFTS5 + semanticSearchSQLiteVec
+          # run on the x86_64 emulator — the on-device target these features are
+          # meant for. (The other platforms keep a default, traits-off run; the
+          # off-state contract is asserted by the #else branches there.)
+          swift-build-flags: "--traits FTS5,SQLiteVec"
+          swift-test-flags: "--traits FTS5,SQLiteVec"

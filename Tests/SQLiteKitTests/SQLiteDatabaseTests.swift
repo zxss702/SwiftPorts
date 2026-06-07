@@ -17,6 +17,47 @@ import Testing
         #expect(sets[0].rows == [[.integer(1), .text("apple"), .integer(4)]])
     }
 
+    // Vector / semantic search via the vendored sqlite-vec (the `SQLiteVec`
+    // package trait, off by default). Mirrors the real workflow: embeddings
+    // come from some external model, are L2-normalized to unit vectors, and
+    // stored in a `vec0` table for cosine KNN — the scale that fits on an
+    // iPhone/iPad. SwiftPM defines the `SQLiteVec` compilation condition
+    // exactly when the trait is on, so run the positive path with
+    // `swift test --traits SQLiteVec`.
+    @Test func semanticSearchSQLiteVec() throws {
+        let db = try SQLiteDatabase.inMemory()
+        #if SQLiteVec
+        // Trait on: sqlite-vec is compiled in and auto-registered.
+        #expect(try db.evaluate("SELECT vec_version();")[0].rows[0][0] == .text("v0.1.9"))
+
+        // A small semantic-lookup table: three unit vectors standing in for
+        // document embeddings, compared by cosine distance.
+        try db.evaluate("""
+            CREATE VIRTUAL TABLE docs USING vec0(
+                doc_id INTEGER PRIMARY KEY,
+                embedding float[3] distance_metric=cosine
+            );
+            INSERT INTO docs(doc_id, embedding) VALUES
+              (1, '[1.0, 0.0, 0.0]'),   -- e.g. "cat"
+              (2, '[0.0, 1.0, 0.0]'),   -- e.g. "car"
+              (3, '[0.0, 0.0, 1.0]');   -- e.g. "sky"
+            """)
+
+        // KNN: a query vector nearest doc 1, then doc 2 (doc 3 is orthogonal).
+        let knn = try db.evaluate("""
+            SELECT doc_id FROM docs
+            WHERE embedding MATCH '[0.9, 0.1, 0.0]' AND k = 2
+            ORDER BY distance;
+            """)
+        #expect(knn[0].rows.map { $0[0] } == [.integer(1), .integer(2)])
+        #else
+        // Trait off (the default): the vec0 module is not registered.
+        #expect(throws: SQLiteError.self) {
+            try db.evaluate("CREATE VIRTUAL TABLE v USING vec0(embedding float[3]);")
+        }
+        #endif
+    }
+
     @Test func quoteIdentifierMatchesSqlite() {
         // Bare for simple identifiers; double-quoted (embedded " doubled) for
         // names with special characters or that collide with a SQL keyword.

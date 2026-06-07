@@ -234,17 +234,21 @@ let package = Package(
         .library(name: "FdCommand", targets: ["FdCommand"]),
         .executable(name: "fd", targets: ["fd"]),
     ]),
-    // Package traits — opt-in, build-time toggles forwarded to dependencies.
-    // FTS5 is OFF by default (it is not listed in any `.default(enabledTraits:)`),
-    // because it grows the engine binary and most embedders don't need it.
-    // The flag compiles into the shared SQLite C target, so a trait — not a
-    // separate product — is the only way to make it a consumer choice.
-    //   • depending on this package:  .package(url: …, traits: ["FTS5"])
-    //   • building this package direct: swift build --traits FTS5
-    // See `fullTextSearchFTS5` in SQLiteKitTests for the on/off contract.
+    // Package traits — opt-in, build-time toggles. Off by default (none are
+    // listed in any `.default(enabledTraits:)`).
+    //
+    // FTS5 compiles the shared SQLite C target with -DSQLITE_ENABLE_FTS5 (via a
+    // CSQLite dependency trait). SQLiteVec compiles in the vendored sqlite-vec
+    // amalgamation (the CSQLiteVec target) for `vec0` vector / semantic search.
+    // SwiftPM defines a matching compilation condition for each when enabled.
+    //   • depending on this package:  .package(url: …, traits: ["FTS5", "SQLiteVec"])
+    //   • building this package direct: swift build --traits FTS5,SQLiteVec
+    // See `fullTextSearchFTS5` / `semanticSearchSQLiteVec` in SQLiteKitTests.
     traits: [
         .trait(name: "FTS5",
                description: "Compile SQLite with FTS5 full-text search."),
+        .trait(name: "SQLiteVec",
+               description: "Compile in sqlite-vec for on-device vector / semantic search."),
     ],
     dependencies: [
         // Apple / swiftlang
@@ -1080,11 +1084,39 @@ let package = Package(
             path: "Sources/CSQLiteShim",
             publicHeadersPath: "include"
         ),
+        // sqlite-vec, compiled statically into the engine for on-device vector
+        // search. Gated by the `SQLiteVec` trait: SQLiteKit links it only when
+        // the trait is on (below), and no product exposes it, so consumers
+        // don't build it unless they opt in. The vendored amalgamation
+        // (sqlite-vec.c) is compiled via sqlite-vec-shim.c — which adds the one
+        // missing system include — so it stays byte-for-byte upstream and is
+        // excluded from direct compilation. See Sources/CSQLiteVec/README.md.
+        .target(
+            name: "CSQLiteVec",
+            dependencies: [
+                .product(name: "SQLiteSwiftCSQLite", package: "CSQLite"),
+            ],
+            path: "Sources/CSQLiteVec",
+            exclude: ["sqlite-vec.c", "README.md", "LICENSE-MIT", "LICENSE-APACHE"],
+            publicHeadersPath: "include",
+            cSettings: [
+                // Static link against the core engine (no sqlite3ext.h
+                // api-routine indirection); empty the API export macro so the
+                // symbol isn't dllexport'd on Windows for a static build; drop
+                // the filesystem helpers to keep vectors in-database.
+                .define("SQLITE_CORE"),
+                .define("SQLITE_VEC_STATIC"),
+                .define("SQLITE_VEC_OMIT_FS"),
+            ]
+        ),
         .target(
             name: "SQLiteKit",
             dependencies: [
                 .product(name: "SQLiteSwiftCSQLite", package: "CSQLite"),
                 "CSQLiteShim",
+                // Linked (and the amalgamation compiled) only when the
+                // SQLiteVec trait is enabled.
+                .target(name: "CSQLiteVec", condition: .when(traits: ["SQLiteVec"])),
             ],
             path: "Sources/SQLiteKit/Lib",
             linkerSettings: [
