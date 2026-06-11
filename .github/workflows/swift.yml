@@ -47,6 +47,13 @@ jobs:
         run: swift build --build-tests -v
       - name: Test (macOS)
         run: swift test -v --skip-build --no-parallel
+        # No standalone-binary smoke here (the Linux job carries it,
+        # and argv handling is platform-independent): Xcode 26's
+        # SwiftPM doesn't stage libswiftCompatibilitySpan.dylib next
+        # to plain executable products, so a freshly built
+        # .build/debug/gh can't even launch on the macos runner
+        # (dyld: Library not loaded), which has an older OS than the
+        # SDK's native Span.
       - name: Test engine traits FTS5 + SQLiteVec (macOS)
         # Build the SQLite subgraph once with both opt-in engine traits and run
         # their on-state proofs: fullTextSearchFTS5 (#if FTS5 — MATCH / bm25) and
@@ -103,6 +110,22 @@ jobs:
         run: swift build --build-tests -v
       - name: Test (Linux)
         run: swift test -v --skip-build --no-parallel
+      - name: Smoke-test standalone argv handling (Linux)
+        # The standalone binaries read argv through `Shell.arguments`
+        # ($@ semantics); the unit suites never exercise that seam. A
+        # double-drop there made gh ignore its first real argument —
+        # one --version invocation catches total argv-deafness
+        # (issue #69). Linux only: argv handling is platform-
+        # independent, and the macOS runner can't launch SwiftPM
+        # executable products at all (missing
+        # libswiftCompatibilitySpan staging under Xcode 26).
+        #
+        # stdin is pinned to /dev/null — Actions runs steps with fd 0
+        # closed, a shape ShellKit's stdin plumbing should tolerate
+        # but that is its own (tracked) concern, not this smoke's.
+        run: |
+          swift build --product gh
+          .build/debug/gh --version < /dev/null
       - name: Test engine traits FTS5 + SQLiteVec (Linux)
         # One rebuild with both engine traits: validates FTS5 full-text search
         # and the sqlite-vec amalgamation compile + KNN on Linux. The default
