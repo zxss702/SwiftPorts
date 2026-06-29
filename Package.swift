@@ -392,7 +392,7 @@ let package = Package(
         // permits that from a branch/revision reference (a stable-version
         // package may not activate an unstable-version dependency — the
         // `from: "2.0.0"` form works only with the trait off).
-        .package(url: "https://github.com/Cocoanetics/GitKit",
+        .package(url: "https://github.com/zxss702/GitKit",
                  branch: "main",
                  traits: [.defaults, "Archive"]),
 
@@ -618,12 +618,16 @@ let package = Package(
         // probed on macOS, where the CI installs neither, printing spurious
         // `brew install xz` / `brew install lz4` notes. CBzip2 / CZstd stay
         // declared unconditionally: they're genuinely compiled on macOS.
-        .systemLibrary(
+        .target(
             name: "CZstd",
             path: "Sources/CZstd",
-            providers: [
-                .brew(["zstd"]),
-                .apt(["libzstd-dev"]),
+            exclude: [
+                "common/zstd_trace.c", // Trace functions might cause missing symbols if tracing isn't enabled
+            ],
+            publicHeadersPath: "include",
+            cSettings: [
+                .define("ZSTD_LEGACY_SUPPORT", to: "0"),
+                .define("ZSTD_MULTITHREAD"),
             ]
         ),
         .target(
