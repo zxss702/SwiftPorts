@@ -373,8 +373,8 @@ let package = Package(
         // contains yet. GitKit's `Archive` trait pins the SAME revision
         // (the dependency graph must agree on one version of the package);
         // move both to a `from:` pin when upstream tags the gating.
-        .package(url: "https://github.com/marcprux/swift-archive",
-                 revision: "60f478d10ae730c4faed643d3fcc746c07a7e7e5",
+        .package(url: "https://github.com/zxss702/swift-archive",
+                 branch: "swift",
                  traits: [.defaults,
                           "GzipSupport",
                           "Bzip2Support",
@@ -621,7 +621,6 @@ let package = Package(
         .systemLibrary(
             name: "CZstd",
             path: "Sources/CZstd",
-            pkgConfig: "libzstd",
             providers: [
                 .brew(["zstd"]),
                 .apt(["libzstd-dev"]),
