@@ -129,42 +129,7 @@ let forgeKitSecretDependencies: [Target.Dependency] = []
 
 #if os(Linux) || os(Windows)
 let compressionShimTargets: [Target] = [
-    .target(
-        name: "CLZMA",
-        path: "Sources/CLZMA",
-        exclude: [
-            "Makefile.am",
-            "Makefile.in",
-            "api/Makefile.am",
-            "api/Makefile.in",
-            "validate_map.sh",
-            "liblzma.pc.in",
-            "liblzma_generic.map",
-            "liblzma_linux.map",
-            "liblzma_w32res.rc",
-            "check/crc32_x86.S",
-            "check/crc64_x86.S",
-            "check/crc32_tablegen.c",
-            "check/crc64_tablegen.c",
-            "rangecoder/price_tablegen.c",
-            "lzma/fastpos_tablegen.c",
-            "check/crc32_small.c",
-            "check/crc64_small.c"
-        ],
-        publicHeadersPath: "include",
-        cSettings: [
-            .headerSearchPath("."),
-            .headerSearchPath("common"),
-            .headerSearchPath("check"),
-            .headerSearchPath("lz"),
-            .headerSearchPath("lzma"),
-            .headerSearchPath("rangecoder"),
-            .headerSearchPath("simple"),
-            .headerSearchPath("delta"),
-            .headerSearchPath("include"),
-            .define("HAVE_CONFIG_H"),
-        ]
-    ),
+
     .systemLibrary(
         name: "CLz4",
         path: "Sources/CLz4",
@@ -176,7 +141,7 @@ let compressionShimTargets: [Target] = [
     ),
 ]
 let xzKitShimDependencies: [Target.Dependency] = [
-    .target(name: "CLZMA", condition: .when(platforms: [.linux, .windows])),
+    .product(name: "Cliblzma", package: "swift-archive", condition: .when(platforms: [.linux, .windows])),
 ]
 let lz4KitShimDependencies: [Target.Dependency] = [
     .target(name: "CLz4", condition: .when(platforms: [.linux, .windows])),
@@ -645,18 +610,7 @@ let package = Package(
         // probed on macOS, where the CI installs neither, printing spurious
         // `brew install xz` / `brew install lz4` notes. CBzip2 / CZstd stay
         // declared unconditionally: they're genuinely compiled on macOS.
-        .target(
-            name: "CZstd",
-            path: "Sources/CZstd",
-            exclude: [
-                "common/zstd_trace.c", // Trace functions might cause missing symbols if tracing isn't enabled
-            ],
-            publicHeadersPath: "include",
-            cSettings: [
-                .define("ZSTD_LEGACY_SUPPORT", to: "0"),
-                .define("ZSTD_MULTITHREAD"),
-            ]
-        ),
+
         .target(
             name: "GzipKit",
             dependencies: ["CZlib", .product(name: "ShellKit", package: "ShellKit")],
@@ -802,8 +756,7 @@ let package = Package(
             name: "ZstdKit",
             dependencies: [
                 .product(name: "ShellKit", package: "ShellKit"),
-                .target(name: "CZstd",
-                        condition: .when(platforms: [.macOS, .linux, .windows])),
+                .product(name: "Clibzstd", package: "swift-archive", condition: .when(platforms: [.macOS, .linux, .windows])),
             ],
             path: "Sources/ZstdKit/Lib"
         ),
