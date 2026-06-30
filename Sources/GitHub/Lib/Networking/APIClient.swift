@@ -156,7 +156,7 @@ public actor APIClient {
         // that go through this method) is gated here. ~60+ subcommand
         // call sites are subsumed by this single gate.
         try await Shell.authorize(url)
-        var request = HTTPRequest(method: method, url: url)
+        var request = HTTPRequest(method: method, scheme: url.scheme, authority: url.host, path: url.path + (url.query.map { "?\($0)" } ?? ""))
         request.headerFields[.accept] = "application/vnd.github+json"
         request.headerFields[.gitHubAPIVersion] = "2022-11-28"
         request.headerFields[.userAgent] = configuration.userAgent

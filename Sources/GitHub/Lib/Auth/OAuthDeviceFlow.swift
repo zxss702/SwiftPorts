@@ -55,7 +55,7 @@ public actor OAuthDeviceFlow {
     // MARK: Step 1: Request a device + user code
 
     public func requestDeviceCode(scopes: [String]) async throws -> DeviceCode {
-        var request = HTTPRequest(method: .post, url: deviceCodeURL)
+        var request = HTTPRequest(method: .post, scheme: deviceCodeURL.scheme, authority: deviceCodeURL.host, path: deviceCodeURL.path + (deviceCodeURL.query.map { "?\($0)" } ?? ""))
         request.headerFields[.accept] = "application/json"
         request.headerFields[.contentType] = "application/x-www-form-urlencoded"
 
@@ -105,7 +105,7 @@ public actor OAuthDeviceFlow {
     }
 
     public func exchangeOnce(deviceCode: String) async throws -> AccessToken {
-        var request = HTTPRequest(method: .post, url: accessTokenURL)
+        var request = HTTPRequest(method: .post, scheme: accessTokenURL.scheme, authority: accessTokenURL.host, path: accessTokenURL.path + (accessTokenURL.query.map { "?\($0)" } ?? ""))
         request.headerFields[.accept] = "application/json"
         request.headerFields[.contentType] = "application/x-www-form-urlencoded"
 

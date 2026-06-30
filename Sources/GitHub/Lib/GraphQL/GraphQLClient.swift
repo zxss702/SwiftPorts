@@ -72,7 +72,7 @@ public actor GraphQLClient {
             query: query, variables: variables, operationName: operationName)
         let body = try JSONEncoder.gitHub().encode(request)
 
-        var httpRequest = HTTPRequest(method: .post, url: configuration.graphQLURL)
+        var httpRequest = HTTPRequest(method: .post, scheme: configuration.graphQLURL.scheme, authority: configuration.graphQLURL.host, path: configuration.graphQLURL.path + (configuration.graphQLURL.query.map { "?\($0)" } ?? ""))
         httpRequest.headerFields[.accept] = "application/json"
         httpRequest.headerFields[.contentType] = "application/json; charset=utf-8"
         httpRequest.headerFields[.userAgent] = configuration.userAgent

@@ -147,7 +147,7 @@ public actor APIClient {
         // raw, paginate) flows through here. ~50 GlabCommand subcommand
         // sites are subsumed by this single gate.
         try await Shell.authorize(url)
-        var request = HTTPRequest(method: method, url: url)
+        var request = HTTPRequest(method: method, scheme: url.scheme, authority: url.host, path: url.path + (url.query.map { "?\($0)" } ?? ""))
         request.headerFields[.accept] = "application/json"
         request.headerFields[.userAgent] = configuration.userAgent
         if let token = configuration.token {
