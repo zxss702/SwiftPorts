@@ -4,7 +4,7 @@
 #if os(macOS) || os(Linux) || os(Windows)
 
 import Foundation
-import CZstd
+import Clibzstd
 import ShellKit
 
 /// Pure-Swift `zstd(1)` engine — single-file compression / decompression

@@ -11,7 +11,7 @@ import ShellKit
 #if canImport(Compression)
 import Compression
 #else
-import CLZMA
+import Cliblzma
 #endif
 
 /// Pure-Swift `xz(1)` engine. On Apple platforms the backend is
